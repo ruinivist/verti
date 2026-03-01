@@ -23,6 +23,14 @@ import (
 const restoreOrphanFlag = "--orphan"
 const restoreSkippedOutOfSyncMessage = "verti: restore skipped. Code and artifacts are now out of sync."
 
+type restoreDecision int
+
+const (
+	restoreDecisionProceed restoreDecision = iota
+	restoreDecisionDeclined
+	restoreDecisionNoTTY
+)
+
 type restoreDecisionContext struct {
 	TargetSHA    string
 	OrphanID     string
@@ -129,11 +137,15 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 			return fmt.Errorf("run pre-decision restore hook: %w", err)
 		}
 
-		proceed, err := shouldProceedWithRestore(cfg.RestoreMode, target, meta.Branch)
+		decision, err := shouldProceedWithRestore(cfg.RestoreMode, target, meta.Branch)
 		if err != nil {
 			return err
 		}
-		if !proceed {
+		if decision == restoreDecisionNoTTY {
+			warnf(stderr, "verti: no interactive TTY; skipping restore. To apply manually, run: verti restore %s", target)
+			return nil
+		}
+		if decision == restoreDecisionDeclined {
 			warnf(stderr, restoreSkippedOutOfSyncMessage)
 			return nil
 		}
@@ -258,22 +270,25 @@ func createPreRestoreOrphanSnapshot(repoRoot, scopeDir, storeRoot string, cfg co
 	return orphanID, orphanPath, nil
 }
 
-func shouldProceedWithRestore(mode, targetSHA, branch string) (bool, error) {
+func shouldProceedWithRestore(mode, targetSHA, branch string) (restoreDecision, error) {
 	if mode != config.RestoreModePrompt {
-		return true, nil
+		return restoreDecisionProceed, nil
 	}
 
 	tty, err := openPromptTTY()
 	if err != nil {
-		return false, nil
+		return restoreDecisionNoTTY, nil
 	}
 	defer tty.Close()
 
 	confirmed, err := promptRestoreConfirmationFn(tty, targetSHA, branch)
 	if err != nil {
-		return false, fmt.Errorf("prompt restore confirmation: %w", err)
+		return restoreDecisionDeclined, fmt.Errorf("prompt restore confirmation: %w", err)
 	}
-	return confirmed, nil
+	if !confirmed {
+		return restoreDecisionDeclined, nil
+	}
+	return restoreDecisionProceed, nil
 }
 
 func promptRestoreConfirmation(tty io.ReadWriter, targetSHA, branch string) (bool, error) {

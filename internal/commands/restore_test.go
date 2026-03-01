@@ -401,6 +401,69 @@ func TestRunRestoreAcceptProceedsToApplyRestorePlan(t *testing.T) {
 	}
 }
 
+func TestRunRestoreNoTTYSkipsWithManualRecoveryHintAndNoFileChanges(t *testing.T) {
+	requireGit(t)
+
+	repoDir := createGitRepoWithArtifacts(t)
+	storeRoot := filepath.Join(t.TempDir(), "store")
+	cfg := config.Config{
+		RepoID:        "repo-restore-no-tty-hint",
+		Enabled:       true,
+		Artifacts:     []string{"md", "progress.md"},
+		StoreRoot:     storeRoot,
+		RestoreMode:   config.RestoreModePrompt,
+		MaxFileSizeMB: config.DefaultMaxFileSizeMB,
+	}
+	writeRepoConfig(t, repoDir, cfg)
+
+	var snapshotStderr bytes.Buffer
+	if err := runSnapshot(repoDir, &snapshotStderr); err != nil {
+		t.Fatalf("runSnapshot() error = %v", err)
+	}
+	targetSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+
+	beforeContent, err := os.ReadFile(filepath.Join(repoDir, "progress.md"))
+	if err != nil {
+		t.Fatalf("read pre-restore progress.md: %v", err)
+	}
+
+	origDecisionHook := beforeRestoreDecisionHook
+	beforeRestoreDecisionHook = func(restoreDecisionContext) error { return nil }
+	t.Cleanup(func() { beforeRestoreDecisionHook = origDecisionHook })
+
+	origOpenTTY := openPromptTTY
+	openPromptTTY = func() (io.ReadWriteCloser, error) { return nil, fmt.Errorf("no tty") }
+	t.Cleanup(func() { openPromptTTY = origOpenTTY })
+
+	applyCalled := false
+	origApplyHook := applyRestorePlanHook
+	applyRestorePlanHook = func(restoreApplyContext) error {
+		applyCalled = true
+		return nil
+	}
+	t.Cleanup(func() { applyRestorePlanHook = origApplyHook })
+
+	var stderr bytes.Buffer
+	if err := runRestore(repoDir, []string{targetSHA}, &stderr); err != nil {
+		t.Fatalf("runRestore() error = %v", err)
+	}
+
+	if applyCalled {
+		t.Fatalf("restore apply should not run when tty is unavailable")
+	}
+	if !strings.Contains(stderr.String(), "verti restore "+targetSHA) {
+		t.Fatalf("expected manual recovery hint in stderr, got %q", stderr.String())
+	}
+
+	afterContent, err := os.ReadFile(filepath.Join(repoDir, "progress.md"))
+	if err != nil {
+		t.Fatalf("read post-restore progress.md: %v", err)
+	}
+	if string(afterContent) != string(beforeContent) {
+		t.Fatalf("no-tty restore skip should not modify artifacts")
+	}
+}
+
 type fakeTTY struct {
 	in     *bytes.Reader
 	output bytes.Buffer
