@@ -1,16 +1,19 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"verti/internal/artifacts"
 	"verti/internal/cli"
 	"verti/internal/config"
 	"verti/internal/git"
 	"verti/internal/identity"
+	"verti/internal/restoreplan"
 	"verti/internal/snapshots"
 )
 
@@ -25,6 +28,10 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 	target, targetKind, err := parseRestoreArgs(args)
 	if err != nil {
 		return err
+	}
+	repoRoot, err := git.RepoRoot(workingDir)
+	if err != nil {
+		return fmt.Errorf("resolve repo root: %w", err)
 	}
 
 	cfg, err := loadRepoConfig(workingDir)
@@ -57,12 +64,24 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 		_ = stderr
 		return nil
 	case "snapshot":
-		_, found, err := snapshots.FindSnapshot(scopeDir, target)
+		snapshotPath, found, err := snapshots.FindSnapshot(scopeDir, target)
 		if err != nil {
 			return fmt.Errorf("lookup snapshot %q: %w", target, err)
 		}
 		if !found {
 			return nil
+		}
+
+		manifest, err := loadSnapshotManifest(snapshotPath)
+		if err != nil {
+			return err
+		}
+		currentPaths, err := currentPresentArtifactPaths(repoRoot, cfg.Artifacts)
+		if err != nil {
+			return err
+		}
+		if _, err := restoreplan.BuildPlan(repoRoot, manifest.Entries, currentPaths); err != nil {
+			return fmt.Errorf("build restore plan for snapshot %q: %w", target, err)
 		}
 
 		// Restore apply pipeline is implemented in later tasks.
@@ -108,4 +127,33 @@ func loadRepoConfig(workingDir string) (config.Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func loadSnapshotManifest(snapshotPath string) (snapshots.Manifest, error) {
+	raw, err := os.ReadFile(filepath.Join(snapshotPath, "manifest.json"))
+	if err != nil {
+		return snapshots.Manifest{}, fmt.Errorf("read snapshot manifest at %q: %w", snapshotPath, err)
+	}
+
+	var manifest snapshots.Manifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return snapshots.Manifest{}, fmt.Errorf("parse snapshot manifest at %q: %w", snapshotPath, err)
+	}
+
+	return manifest, nil
+}
+
+func currentPresentArtifactPaths(repoRoot string, configured []string) ([]string, error) {
+	entries, err := artifacts.BuildManifestEntries(repoRoot, configured)
+	if err != nil {
+		return nil, fmt.Errorf("build current artifact manifest for restore planning: %w", err)
+	}
+
+	out := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.Status == artifacts.ArtifactStatusPresent {
+			out = append(out, e.Path)
+		}
+	}
+	return out, nil
 }
