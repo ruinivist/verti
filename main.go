@@ -19,6 +19,13 @@ func main() {
 		}
 		return commands.RunInit(wd)
 	}
+	handlers.Snapshot = func(_ []string) error {
+		wd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("resolve working directory: %w", err)
+		}
+		return commands.RunSnapshot(wd)
+	}
 
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, handlers))
 }
