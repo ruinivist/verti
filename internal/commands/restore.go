@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ import (
 )
 
 const restoreOrphanFlag = "--orphan"
+const restoreSkippedOutOfSyncMessage = "verti: restore skipped. Code and artifacts are now out of sync."
 
 type restoreDecisionContext struct {
 	TargetSHA    string
@@ -28,7 +30,20 @@ type restoreDecisionContext struct {
 	SnapshotPath string
 }
 
+type restoreApplyContext struct {
+	TargetSHA    string
+	SnapshotPath string
+	OrphanID     string
+	OrphanPath   string
+	Plan         []restoreplan.Operation
+}
+
 var beforeRestoreDecisionHook = func(restoreDecisionContext) error { return nil }
+var applyRestorePlanHook = func(restoreApplyContext) error { return nil }
+var openPromptTTY = func() (io.ReadWriteCloser, error) {
+	return os.OpenFile("/dev/tty", os.O_RDWR, 0)
+}
+var promptRestoreConfirmationFn = promptRestoreConfirmation
 
 // RunRestore resolves a restore target and no-ops when no snapshot is found.
 func RunRestore(workingDir string, args []string) error {
@@ -87,11 +102,16 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 		if err != nil {
 			return err
 		}
+		meta, err := loadSnapshotMeta(snapshotPath)
+		if err != nil {
+			return err
+		}
 		currentPaths, err := currentPresentArtifactPaths(repoRoot, cfg.Artifacts)
 		if err != nil {
 			return err
 		}
-		if _, err := restoreplan.BuildPlan(repoRoot, manifest.Entries, currentPaths); err != nil {
+		plan, err := restoreplan.BuildPlan(repoRoot, manifest.Entries, currentPaths)
+		if err != nil {
 			return fmt.Errorf("build restore plan for snapshot %q: %w", target, err)
 		}
 
@@ -109,8 +129,25 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 			return fmt.Errorf("run pre-decision restore hook: %w", err)
 		}
 
-		// Restore apply pipeline is implemented in later tasks.
-		_ = stderr
+		proceed, err := shouldProceedWithRestore(cfg.RestoreMode, target, meta.Branch)
+		if err != nil {
+			return err
+		}
+		if !proceed {
+			warnf(stderr, restoreSkippedOutOfSyncMessage)
+			return nil
+		}
+
+		if err := applyRestorePlanHook(restoreApplyContext{
+			TargetSHA:    target,
+			SnapshotPath: snapshotPath,
+			OrphanID:     orphanID,
+			OrphanPath:   orphanPath,
+			Plan:         plan,
+		}); err != nil {
+			return fmt.Errorf("apply restore plan for snapshot %q: %w", target, err)
+		}
+
 		return nil
 	default:
 		return fmt.Errorf("unsupported restore target kind %q", targetKind)
@@ -168,6 +205,20 @@ func loadSnapshotManifest(snapshotPath string) (snapshots.Manifest, error) {
 	return manifest, nil
 }
 
+func loadSnapshotMeta(snapshotPath string) (snapshots.Meta, error) {
+	raw, err := os.ReadFile(filepath.Join(snapshotPath, "meta.json"))
+	if err != nil {
+		return snapshots.Meta{}, fmt.Errorf("read snapshot meta at %q: %w", snapshotPath, err)
+	}
+
+	var meta snapshots.Meta
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return snapshots.Meta{}, fmt.Errorf("parse snapshot meta at %q: %w", snapshotPath, err)
+	}
+
+	return meta, nil
+}
+
 func currentPresentArtifactPaths(repoRoot string, configured []string) ([]string, error) {
 	entries, err := artifacts.BuildManifestEntries(repoRoot, configured)
 	if err != nil {
@@ -205,4 +256,40 @@ func createPreRestoreOrphanSnapshot(repoRoot, scopeDir, storeRoot string, cfg co
 	}
 
 	return orphanID, orphanPath, nil
+}
+
+func shouldProceedWithRestore(mode, targetSHA, branch string) (bool, error) {
+	if mode != config.RestoreModePrompt {
+		return true, nil
+	}
+
+	tty, err := openPromptTTY()
+	if err != nil {
+		return false, nil
+	}
+	defer tty.Close()
+
+	confirmed, err := promptRestoreConfirmationFn(tty, targetSHA, branch)
+	if err != nil {
+		return false, fmt.Errorf("prompt restore confirmation: %w", err)
+	}
+	return confirmed, nil
+}
+
+func promptRestoreConfirmation(tty io.ReadWriter, targetSHA, branch string) (bool, error) {
+	if strings.TrimSpace(branch) == "" {
+		fmt.Fprintf(tty, "verti: snapshot found for %s.\n", targetSHA)
+	} else {
+		fmt.Fprintf(tty, "verti: snapshot found for %s (branch: %s).\n", targetSHA, branch)
+	}
+	fmt.Fprintln(tty, "This will delete un-snapshotted files in configured directories.")
+	fmt.Fprint(tty, "Restore artifacts? [y/N] ")
+
+	response, err := bufio.NewReader(tty).ReadString('\n')
+	if err != nil && err != io.EOF {
+		return false, fmt.Errorf("read restore prompt response: %w", err)
+	}
+
+	answer := strings.ToLower(strings.TrimSpace(response))
+	return answer == "y" || answer == "yes", nil
 }
