@@ -7,10 +7,20 @@ import (
 	"os"
 
 	"verti/internal/cli"
+	"verti/internal/commands"
 )
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, cli.NotImplementedHandlers()))
+	handlers := cli.NotImplementedHandlers()
+	handlers.Init = func(_ []string) error {
+		wd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("resolve working directory: %w", err)
+		}
+		return commands.RunInit(wd)
+	}
+
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, handlers))
 }
 
 func run(args []string, stdout, stderr io.Writer, handlers cli.Handlers) int {
