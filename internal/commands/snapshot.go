@@ -62,10 +62,21 @@ func runSnapshot(workingDir string, stderr io.Writer) error {
 		return err
 	}
 
-	for _, entry := range manifestEntries {
+	maxFileBytes := int64(cfg.MaxFileSizeMB) * 1024 * 1024
+
+	for i := range manifestEntries {
+		entry := &manifestEntries[i]
 		if entry.Kind != artifacts.ArtifactKindFile || entry.Status != artifacts.ArtifactStatusPresent {
 			continue
 		}
+
+		if entry.Size > maxFileBytes {
+			entry.Status = artifacts.ArtifactStatusSkipped
+			entry.Hash = ""
+			warnf(stderr, "warning: skipping artifact %q: size %d bytes exceeds max_file_size_mb=%d", entry.Path, entry.Size, cfg.MaxFileSizeMB)
+			continue
+		}
+
 		filePath := filepath.Join(repoRoot, filepath.FromSlash(entry.Path))
 		data, err := os.ReadFile(filePath)
 		if err != nil {

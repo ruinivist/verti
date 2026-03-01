@@ -10,6 +10,7 @@ import (
 const (
 	ArtifactStatusPresent = "present"
 	ArtifactStatusMissing = "missing"
+	ArtifactStatusSkipped = "skipped"
 )
 
 // ConfiguredPath represents one configured artifact path after normalization.
