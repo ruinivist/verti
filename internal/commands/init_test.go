@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -72,6 +73,82 @@ func TestRunInitOutsideGitWorktreeReturnsClearError(t *testing.T) {
 	if !strings.Contains(err.Error(), "inside a git worktree") {
 		t.Fatalf("expected clear git worktree error, got %v", err)
 	}
+}
+
+func TestRunInitInstallsAllRequiredDispatchers(t *testing.T) {
+	requireGit(t)
+
+	repoDir := createGitRepo(t)
+
+	if err := runInit(repoDir, "/abs/path/to/verti"); err != nil {
+		t.Fatalf("runInit() error = %v", err)
+	}
+
+	for _, hookName := range []string{"post-commit", "post-checkout", "post-merge", "post-rewrite"} {
+		hookPath := filepath.Join(repoDir, ".git", "hooks", hookName)
+
+		info, err := os.Stat(hookPath)
+		if err != nil {
+			t.Fatalf("stat hook %q: %v", hookPath, err)
+		}
+		if info.Mode().Perm()&0o111 == 0 {
+			t.Fatalf("hook %q is not executable (mode=%o)", hookPath, info.Mode().Perm())
+		}
+
+		content := mustReadFile(t, hookPath)
+		if !strings.Contains(content, "# verti-dispatcher") {
+			t.Fatalf("hook %q missing dispatcher marker:\n%s", hookPath, content)
+		}
+		if !strings.Contains(content, "VERTI_BIN=\"/abs/path/to/verti\"") {
+			t.Fatalf("hook %q missing embedded verti binary path:\n%s", hookPath, content)
+		}
+	}
+}
+
+func TestRunInitIsIdempotentForInstalledDispatchers(t *testing.T) {
+	requireGit(t)
+
+	repoDir := createGitRepo(t)
+
+	if err := runInit(repoDir, "/abs/path/to/verti"); err != nil {
+		t.Fatalf("runInit(first) error = %v", err)
+	}
+
+	firstContents := make(map[string]string, 4)
+	for _, hookName := range []string{"post-commit", "post-checkout", "post-merge", "post-rewrite"} {
+		hookPath := filepath.Join(repoDir, ".git", "hooks", hookName)
+		firstContents[hookName] = mustReadFile(t, hookPath)
+	}
+
+	if err := runInit(repoDir, "/abs/path/to/verti"); err != nil {
+		t.Fatalf("runInit(second) error = %v", err)
+	}
+
+	for hookName, first := range firstContents {
+		hookPath := filepath.Join(repoDir, ".git", "hooks", hookName)
+		second := mustReadFile(t, hookPath)
+		if second != first {
+			t.Fatalf("hook %q changed across idempotent rerun", hookName)
+		}
+
+		backupPattern := hookPath + ".verti.backup*"
+		backupMatches, err := filepath.Glob(backupPattern)
+		if err != nil {
+			t.Fatalf("glob %q: %v", backupPattern, err)
+		}
+		if len(backupMatches) != 0 {
+			t.Fatalf("expected no backup files for clean install rerun; got %v", backupMatches)
+		}
+	}
+}
+
+func mustReadFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %q: %v", path, err)
+	}
+	return string(data)
 }
 
 func requireGit(t *testing.T) {
