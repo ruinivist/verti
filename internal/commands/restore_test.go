@@ -464,6 +464,147 @@ func TestRunRestoreNoTTYSkipsWithManualRecoveryHintAndNoFileChanges(t *testing.T
 	}
 }
 
+func TestRunRestoreForceAppliesWithoutPromptInInteractiveAndNonInteractiveModes(t *testing.T) {
+	requireGit(t)
+
+	setupAndRun := func(t *testing.T, name string, openTTY func() (io.ReadWriteCloser, error)) {
+		t.Helper()
+		t.Run(name, func(t *testing.T) {
+			repoDir := createGitRepoWithArtifacts(t)
+			storeRoot := filepath.Join(t.TempDir(), "store")
+			cfg := config.Config{
+				RepoID:        "repo-restore-force-" + strings.ReplaceAll(name, "_", "-"),
+				Enabled:       true,
+				Artifacts:     []string{"md", "progress.md"},
+				StoreRoot:     storeRoot,
+				RestoreMode:   config.RestoreModeForce,
+				MaxFileSizeMB: config.DefaultMaxFileSizeMB,
+			}
+			writeRepoConfig(t, repoDir, cfg)
+
+			var snapshotStderr bytes.Buffer
+			if err := runSnapshot(repoDir, &snapshotStderr); err != nil {
+				t.Fatalf("runSnapshot() error = %v", err)
+			}
+			targetSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+
+			origDecisionHook := beforeRestoreDecisionHook
+			beforeRestoreDecisionHook = func(restoreDecisionContext) error { return nil }
+			t.Cleanup(func() { beforeRestoreDecisionHook = origDecisionHook })
+
+			ttyOpened := false
+			origOpenTTY := openPromptTTY
+			openPromptTTY = func() (io.ReadWriteCloser, error) {
+				ttyOpened = true
+				return openTTY()
+			}
+			t.Cleanup(func() { openPromptTTY = origOpenTTY })
+
+			promptCalled := false
+			origPromptFn := promptRestoreConfirmationFn
+			promptRestoreConfirmationFn = func(_ io.ReadWriter, _, _ string) (bool, error) {
+				promptCalled = true
+				return false, nil
+			}
+			t.Cleanup(func() { promptRestoreConfirmationFn = origPromptFn })
+
+			applyCalled := false
+			origApplyHook := applyRestorePlanHook
+			applyRestorePlanHook = func(restoreApplyContext) error {
+				applyCalled = true
+				return nil
+			}
+			t.Cleanup(func() { applyRestorePlanHook = origApplyHook })
+
+			var stderr bytes.Buffer
+			if err := runRestore(repoDir, []string{targetSHA}, &stderr); err != nil {
+				t.Fatalf("runRestore() error = %v", err)
+			}
+
+			if ttyOpened {
+				t.Fatalf("force mode should not attempt to open tty")
+			}
+			if promptCalled {
+				t.Fatalf("force mode should not call confirmation prompt")
+			}
+			if !applyCalled {
+				t.Fatalf("force mode should apply restore without prompt")
+			}
+		})
+	}
+
+	setupAndRun(t, "interactive_tty_available", func() (io.ReadWriteCloser, error) {
+		return newFakeTTY("n\n"), nil
+	})
+	setupAndRun(t, "non_interactive_no_tty", func() (io.ReadWriteCloser, error) {
+		return nil, fmt.Errorf("no tty")
+	})
+}
+
+func TestRunRestoreSkipModeExitsWithoutPromptOrApply(t *testing.T) {
+	requireGit(t)
+
+	repoDir := createGitRepoWithArtifacts(t)
+	storeRoot := filepath.Join(t.TempDir(), "store")
+	cfg := config.Config{
+		RepoID:        "repo-restore-skip",
+		Enabled:       true,
+		Artifacts:     []string{"md", "progress.md"},
+		StoreRoot:     storeRoot,
+		RestoreMode:   config.RestoreModeSkip,
+		MaxFileSizeMB: config.DefaultMaxFileSizeMB,
+	}
+	writeRepoConfig(t, repoDir, cfg)
+
+	var snapshotStderr bytes.Buffer
+	if err := runSnapshot(repoDir, &snapshotStderr); err != nil {
+		t.Fatalf("runSnapshot() error = %v", err)
+	}
+	targetSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+
+	origDecisionHook := beforeRestoreDecisionHook
+	beforeRestoreDecisionHook = func(restoreDecisionContext) error { return nil }
+	t.Cleanup(func() { beforeRestoreDecisionHook = origDecisionHook })
+
+	origOpenTTY := openPromptTTY
+	openPromptTTY = func() (io.ReadWriteCloser, error) {
+		t.Fatalf("skip mode should not attempt to open tty")
+		return nil, nil
+	}
+	t.Cleanup(func() { openPromptTTY = origOpenTTY })
+
+	promptCalled := false
+	origPromptFn := promptRestoreConfirmationFn
+	promptRestoreConfirmationFn = func(_ io.ReadWriter, _, _ string) (bool, error) {
+		promptCalled = true
+		return true, nil
+	}
+	t.Cleanup(func() { promptRestoreConfirmationFn = origPromptFn })
+
+	applyCalled := false
+	origApplyHook := applyRestorePlanHook
+	applyRestorePlanHook = func(restoreApplyContext) error {
+		applyCalled = true
+		return nil
+	}
+	t.Cleanup(func() { applyRestorePlanHook = origApplyHook })
+
+	var stderr bytes.Buffer
+	if err := runRestore(repoDir, []string{targetSHA}, &stderr); err != nil {
+		t.Fatalf("runRestore() error = %v", err)
+	}
+
+	if promptCalled {
+		t.Fatalf("skip mode should not call confirmation prompt")
+	}
+	if applyCalled {
+		t.Fatalf("skip mode should not apply restore")
+	}
+	if stderr.String() != "" {
+		t.Fatalf("skip mode should exit silently, got stderr %q", stderr.String())
+	}
+}
+
 type fakeTTY struct {
 	in     *bytes.Reader
 	output bytes.Buffer

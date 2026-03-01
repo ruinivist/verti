@@ -16,6 +16,7 @@ import (
 	"verti/internal/config"
 	"verti/internal/git"
 	"verti/internal/identity"
+	"verti/internal/restoremode"
 	"verti/internal/restoreplan"
 	"verti/internal/snapshots"
 )
@@ -29,6 +30,7 @@ const (
 	restoreDecisionProceed restoreDecision = iota
 	restoreDecisionDeclined
 	restoreDecisionNoTTY
+	restoreDecisionSkip
 )
 
 type restoreDecisionContext struct {
@@ -137,9 +139,17 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 			return fmt.Errorf("run pre-decision restore hook: %w", err)
 		}
 
-		decision, err := shouldProceedWithRestore(cfg.RestoreMode, target, meta.Branch)
+		restoreMode, err := resolveEffectiveRestoreMode(cfg.RestoreMode, stderr)
 		if err != nil {
 			return err
+		}
+
+		decision, err := shouldProceedWithRestore(restoreMode, target, meta.Branch)
+		if err != nil {
+			return err
+		}
+		if decision == restoreDecisionSkip {
+			return nil
 		}
 		if decision == restoreDecisionNoTTY {
 			warnf(stderr, "verti: no interactive TTY; skipping restore. To apply manually, run: verti restore %s", target)
@@ -271,8 +281,14 @@ func createPreRestoreOrphanSnapshot(repoRoot, scopeDir, storeRoot string, cfg co
 }
 
 func shouldProceedWithRestore(mode, targetSHA, branch string) (restoreDecision, error) {
-	if mode != config.RestoreModePrompt {
+	switch mode {
+	case config.RestoreModeForce:
 		return restoreDecisionProceed, nil
+	case config.RestoreModeSkip:
+		return restoreDecisionSkip, nil
+	case config.RestoreModePrompt:
+	default:
+		return restoreDecisionDeclined, fmt.Errorf("unsupported restore mode %q", mode)
 	}
 
 	tty, err := openPromptTTY()
@@ -307,4 +323,17 @@ func promptRestoreConfirmation(tty io.ReadWriter, targetSHA, branch string) (boo
 
 	answer := strings.ToLower(strings.TrimSpace(response))
 	return answer == "y" || answer == "yes", nil
+}
+
+func resolveEffectiveRestoreMode(configMode string, warnings io.Writer) (string, error) {
+	env := map[string]string{}
+	if raw, ok := os.LookupEnv("VERTI_RESTORE_MODE"); ok {
+		env["VERTI_RESTORE_MODE"] = raw
+	}
+
+	mode, err := restoremode.Resolve(configMode, env, warnings)
+	if err != nil {
+		return "", fmt.Errorf("resolve restore mode: %w", err)
+	}
+	return mode, nil
 }
