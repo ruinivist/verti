@@ -62,34 +62,7 @@ func runSnapshot(workingDir string, stderr io.Writer) error {
 		return err
 	}
 
-	maxFileBytes := int64(cfg.MaxFileSizeMB) * 1024 * 1024
-
-	for i := range manifestEntries {
-		entry := &manifestEntries[i]
-		if entry.Kind != artifacts.ArtifactKindFile || entry.Status != artifacts.ArtifactStatusPresent {
-			continue
-		}
-
-		if entry.Size > maxFileBytes {
-			entry.Status = artifacts.ArtifactStatusSkipped
-			entry.Hash = ""
-			warnf(stderr, "warning: skipping artifact %q: size %d bytes exceeds max_file_size_mb=%d", entry.Path, entry.Size, cfg.MaxFileSizeMB)
-			continue
-		}
-
-		filePath := filepath.Join(repoRoot, filepath.FromSlash(entry.Path))
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			warnf(stderr, "warning: unable to read artifact file %q for object store write: %v", entry.Path, err)
-			continue
-		}
-
-		objectsDir := filepath.Join(storeRoot, "repos", cfg.RepoID, "objects")
-		if _, err := writeObjectFn(objectsDir, data); err != nil {
-			warnf(stderr, "warning: unable to write object for artifact %q: %v", entry.Path, err)
-			continue
-		}
-	}
+	writeManifestObjects(repoRoot, storeRoot, cfg.RepoID, cfg.MaxFileSizeMB, manifestEntries, stderr)
 
 	worktreeID, err := identity.ResolveWorktreeIdentity(workingDir)
 	if err != nil {
@@ -140,4 +113,35 @@ func expandStoreRoot(storeRoot string) (string, error) {
 		return "", fmt.Errorf("resolve absolute store_root %q: %w", storeRoot, err)
 	}
 	return abs, nil
+}
+
+func writeManifestObjects(repoRoot, storeRoot, repoID string, maxFileSizeMB int, entries []artifacts.ManifestEntry, stderr io.Writer) {
+	maxFileBytes := int64(maxFileSizeMB) * 1024 * 1024
+	objectsDir := filepath.Join(storeRoot, "repos", repoID, "objects")
+
+	for i := range entries {
+		entry := &entries[i]
+		if entry.Kind != artifacts.ArtifactKindFile || entry.Status != artifacts.ArtifactStatusPresent {
+			continue
+		}
+
+		if entry.Size > maxFileBytes {
+			entry.Status = artifacts.ArtifactStatusSkipped
+			entry.Hash = ""
+			warnf(stderr, "warning: skipping artifact %q: size %d bytes exceeds max_file_size_mb=%d", entry.Path, entry.Size, maxFileSizeMB)
+			continue
+		}
+
+		filePath := filepath.Join(repoRoot, filepath.FromSlash(entry.Path))
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			warnf(stderr, "warning: unable to read artifact file %q for object store write: %v", entry.Path, err)
+			continue
+		}
+
+		if _, err := writeObjectFn(objectsDir, data); err != nil {
+			warnf(stderr, "warning: unable to write object for artifact %q: %v", entry.Path, err)
+			continue
+		}
+	}
 }

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"verti/internal/artifacts"
 	"verti/internal/cli"
 	"verti/internal/config"
@@ -18,6 +20,15 @@ import (
 )
 
 const restoreOrphanFlag = "--orphan"
+
+type restoreDecisionContext struct {
+	TargetSHA    string
+	OrphanID     string
+	OrphanPath   string
+	SnapshotPath string
+}
+
+var beforeRestoreDecisionHook = func(restoreDecisionContext) error { return nil }
 
 // RunRestore resolves a restore target and no-ops when no snapshot is found.
 func RunRestore(workingDir string, args []string) error {
@@ -82,6 +93,20 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 		}
 		if _, err := restoreplan.BuildPlan(repoRoot, manifest.Entries, currentPaths); err != nil {
 			return fmt.Errorf("build restore plan for snapshot %q: %w", target, err)
+		}
+
+		orphanID, orphanPath, err := createPreRestoreOrphanSnapshot(repoRoot, scopeDir, storeRoot, cfg, worktreeID, target, stderr)
+		if err != nil {
+			return fmt.Errorf("create pre-restore orphan snapshot: %w", err)
+		}
+
+		if err := beforeRestoreDecisionHook(restoreDecisionContext{
+			TargetSHA:    target,
+			OrphanID:     orphanID,
+			OrphanPath:   orphanPath,
+			SnapshotPath: snapshotPath,
+		}); err != nil {
+			return fmt.Errorf("run pre-decision restore hook: %w", err)
 		}
 
 		// Restore apply pipeline is implemented in later tasks.
@@ -156,4 +181,28 @@ func currentPresentArtifactPaths(repoRoot string, configured []string) ([]string
 		}
 	}
 	return out, nil
+}
+
+func createPreRestoreOrphanSnapshot(repoRoot, scopeDir, storeRoot string, cfg config.Config, worktreeID identity.WorktreeIdentity, targetSHA string, stderr io.Writer) (string, string, error) {
+	entries, err := artifacts.BuildManifestEntries(repoRoot, cfg.Artifacts)
+	if err != nil {
+		return "", "", fmt.Errorf("build current artifact manifest for orphan snapshot: %w", err)
+	}
+
+	writeManifestObjects(repoRoot, storeRoot, cfg.RepoID, cfg.MaxFileSizeMB, entries, stderr)
+
+	orphanID := uuid.NewString()
+	meta := snapshots.Meta{
+		WorktreeID:              worktreeID.WorktreeID,
+		WorktreePathFingerprint: worktreeID.WorktreePathFingerprint,
+		SnapshotKind:            snapshots.SnapshotKindOrphan,
+		OrphanID:                orphanID,
+		TriggeringCheckoutSHA:   targetSHA,
+	}
+	orphanPath, err := snapshots.PublishOrphanSnapshot(scopeDir, orphanID, entries, meta)
+	if err != nil {
+		return "", "", fmt.Errorf("publish orphan snapshot %q: %w", orphanID, err)
+	}
+
+	return orphanID, orphanPath, nil
 }
