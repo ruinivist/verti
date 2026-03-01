@@ -46,10 +46,15 @@ type restoreApplyContext struct {
 	OrphanID     string
 	OrphanPath   string
 	Plan         []restoreplan.Operation
+	Manifest     []artifacts.ManifestEntry
+	RepoRoot     string
+	StoreRoot    string
+	RepoID       string
+	WorktreeID   string
 }
 
 var beforeRestoreDecisionHook = func(restoreDecisionContext) error { return nil }
-var applyRestorePlanHook = func(restoreApplyContext) error { return nil }
+var applyRestorePlanHook = applyRestorePlan
 var openPromptTTY = func() (io.ReadWriteCloser, error) {
 	return os.OpenFile("/dev/tty", os.O_RDWR, 0)
 }
@@ -166,6 +171,11 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 			OrphanID:     orphanID,
 			OrphanPath:   orphanPath,
 			Plan:         plan,
+			Manifest:     manifest.Entries,
+			RepoRoot:     repoRoot,
+			StoreRoot:    storeRoot,
+			RepoID:       cfg.RepoID,
+			WorktreeID:   worktreeID.WorktreeID,
 		}); err != nil {
 			return fmt.Errorf("apply restore plan for snapshot %q: %w", target, err)
 		}
