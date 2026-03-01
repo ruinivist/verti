@@ -5,7 +5,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"verti/internal/artifacts"
 )
@@ -133,5 +135,99 @@ func TestPublishSnapshotStoresWorktreeIdentityFieldsInMeta(t *testing.T) {
 	}
 	if metaDoc["worktree_path_fingerprint"] != "fp-123" {
 		t.Fatalf("meta.json worktree_path_fingerprint = %v, want %q", metaDoc["worktree_path_fingerprint"], "fp-123")
+	}
+}
+
+func TestPublishSnapshotConcurrentSameWorktreeAndSHAUsesSingleCanonicalPublishAndNarrowLock(t *testing.T) {
+	scopeDir := t.TempDir()
+	sha := "race-123"
+
+	entriesA := []artifacts.ManifestEntry{
+		{Path: "a.txt", Kind: artifacts.ArtifactKindFile, Status: artifacts.ArtifactStatusPresent},
+	}
+	entriesB := []artifacts.ManifestEntry{
+		{Path: "b.txt", Kind: artifacts.ArtifactKindFile, Status: artifacts.ArtifactStatusPresent},
+	}
+
+	firstAtRenameHook := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	var hookCalls atomic.Int32
+
+	origHook := beforePublishRenameHook
+	beforePublishRenameHook = func(_, _ string) error {
+		if hookCalls.Add(1) == 1 {
+			close(firstAtRenameHook)
+			<-releaseFirst
+		}
+		return nil
+	}
+	t.Cleanup(func() { beforePublishRenameHook = origHook })
+
+	errCh := make(chan error, 2)
+	go func() {
+		_, err := PublishSnapshot(scopeDir, sha, entriesA, Meta{CommitSHA: sha, WorktreeID: "main"})
+		errCh <- err
+	}()
+
+	select {
+	case <-firstAtRenameHook:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for first publisher to reach pre-rename hook")
+	}
+
+	go func() {
+		_, err := PublishSnapshot(scopeDir, sha, entriesB, Meta{CommitSHA: sha, WorktreeID: "main"})
+		errCh <- err
+	}()
+
+	// The second publisher should be able to stage under .tmp before lock acquisition (narrow lock).
+	tmpRoot := filepath.Join(scopeDir, "snapshots", ".tmp")
+	deadline := time.Now().Add(2 * time.Second)
+	sawMultipleTempDirs := false
+	for time.Now().Before(deadline) {
+		entries, err := os.ReadDir(tmpRoot)
+		if err == nil {
+			tmpCount := 0
+			for _, e := range entries {
+				if e.IsDir() {
+					tmpCount++
+				}
+			}
+			if tmpCount >= 2 {
+				sawMultipleTempDirs = true
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !sawMultipleTempDirs {
+		t.Fatalf("expected concurrent temp staging before publish lock; did not observe >=2 temp dirs")
+	}
+
+	close(releaseFirst)
+
+	for i := 0; i < 2; i++ {
+		if err := <-errCh; err != nil {
+			t.Fatalf("concurrent PublishSnapshot returned error: %v", err)
+		}
+	}
+
+	publishedPath := filepath.Join(scopeDir, "snapshots", sha)
+	if _, err := os.Stat(publishedPath); err != nil {
+		t.Fatalf("expected canonical published snapshot at %q: %v", publishedPath, err)
+	}
+
+	tmpEntries, err := os.ReadDir(tmpRoot)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("read .tmp dir: %v", err)
+	}
+	tmpDirCount := 0
+	for _, e := range tmpEntries {
+		if e.IsDir() {
+			tmpDirCount++
+		}
+	}
+	if tmpDirCount != 0 {
+		t.Fatalf("expected temp dirs to be cleaned after concurrent publish, found %d", tmpDirCount)
 	}
 }

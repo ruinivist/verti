@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"verti/internal/artifacts"
 )
@@ -69,11 +70,28 @@ func PublishSnapshot(scopeDir, sha string, entries []artifacts.ManifestEntry, me
 		return "", err
 	}
 
+	unlock, err := acquirePublishLock(snapshotsDir)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+
+	if _, err := os.Stat(targetDir); err == nil {
+		// Another writer already published this snapshot for the same worktree/SHA.
+		return targetDir, nil
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("stat publish target %q: %w", targetDir, err)
+	}
+
 	if err := beforePublishRenameHook(tmpDir, targetDir); err != nil {
 		return "", fmt.Errorf("pre-rename publish hook failed: %w", err)
 	}
 
 	if err := os.Rename(tmpDir, targetDir); err != nil {
+		if _, statErr := os.Stat(targetDir); statErr == nil {
+			// Another writer won the publish race while we were waiting for the lock.
+			return targetDir, nil
+		}
 		return "", fmt.Errorf("publish snapshot dir %q -> %q: %w", tmpDir, targetDir, err)
 	}
 
@@ -92,4 +110,22 @@ func writeJSONFile(path string, v any) error {
 		return fmt.Errorf("write JSON file %q: %w", path, err)
 	}
 	return nil
+}
+
+func acquirePublishLock(snapshotsDir string) (func(), error) {
+	lockPath := filepath.Join(snapshotsDir, ".publish.lock")
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open publish lock %q: %w", lockPath, err)
+	}
+
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+		_ = lockFile.Close()
+		return nil, fmt.Errorf("acquire publish lock %q: %w", lockPath, err)
+	}
+
+	return func() {
+		_ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+		_ = lockFile.Close()
+	}, nil
 }
