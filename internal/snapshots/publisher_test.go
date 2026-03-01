@@ -104,3 +104,34 @@ func TestPublishSnapshotWritesSchemaVersionInMetaAndManifest(t *testing.T) {
 		t.Fatalf("meta.json missing schema_version field")
 	}
 }
+
+func TestPublishSnapshotStoresWorktreeIdentityFieldsInMeta(t *testing.T) {
+	scopeDir := t.TempDir()
+	sha := "id123"
+
+	publishedPath, err := PublishSnapshot(scopeDir, sha, nil, Meta{
+		CommitSHA:               sha,
+		WorktreeID:              "main",
+		WorktreePathFingerprint: "fp-123",
+	})
+	if err != nil {
+		t.Fatalf("PublishSnapshot() error = %v", err)
+	}
+
+	metaRaw, err := os.ReadFile(filepath.Join(publishedPath, "meta.json"))
+	if err != nil {
+		t.Fatalf("read meta.json: %v", err)
+	}
+
+	var metaDoc map[string]any
+	if err := json.Unmarshal(metaRaw, &metaDoc); err != nil {
+		t.Fatalf("unmarshal meta.json: %v", err)
+	}
+
+	if metaDoc["worktree_id"] != "main" {
+		t.Fatalf("meta.json worktree_id = %v, want %q", metaDoc["worktree_id"], "main")
+	}
+	if metaDoc["worktree_path_fingerprint"] != "fp-123" {
+		t.Fatalf("meta.json worktree_path_fingerprint = %v, want %q", metaDoc["worktree_path_fingerprint"], "fp-123")
+	}
+}

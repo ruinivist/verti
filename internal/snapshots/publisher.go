@@ -24,9 +24,11 @@ type Manifest struct {
 }
 
 type Meta struct {
-	SchemaVersion int    `json:"schema_version"`
-	CommitSHA     string `json:"commit_sha,omitempty"`
-	Branch        string `json:"branch,omitempty"`
+	SchemaVersion           int    `json:"schema_version"`
+	CommitSHA               string `json:"commit_sha,omitempty"`
+	Branch                  string `json:"branch,omitempty"`
+	WorktreeID              string `json:"worktree_id,omitempty"`
+	WorktreePathFingerprint string `json:"worktree_path_fingerprint,omitempty"`
 }
 
 // PublishSnapshot writes manifest/meta in a temporary snapshot dir and atomically
