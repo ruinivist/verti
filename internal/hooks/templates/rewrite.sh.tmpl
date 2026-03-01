@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# verti-dispatcher
+set -euo pipefail
+
+VERTI_BIN={{ .VertiBinPath }}
+
+LEGACY_HOOK={{ .LegacyHookPath }}
+
+REWRITE_INPUT="$(cat)"
+
+if [ "${VERTI_BYPASS:-0}" = "0" ]; then
+  "$VERTI_BIN" snapshot || true
+fi
+
+[ -x "$LEGACY_HOOK" ] && printf '%s' "$REWRITE_INPUT" | "$LEGACY_HOOK" "$@"
