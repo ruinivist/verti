@@ -106,3 +106,55 @@ func TestRunListRejectsUnexpectedArgs(t *testing.T) {
 		t.Fatalf("expected usage error for unexpected list args, got %v", err)
 	}
 }
+
+func TestRunListWithOrphansIncludesOrphanIDAndCheckoutSHA(t *testing.T) {
+	requireGit(t)
+
+	repoDir := createGitRepoWithArtifacts(t)
+	storeRoot := filepath.Join(t.TempDir(), "store")
+	cfg := config.Config{
+		RepoID:        "repo-list-orphans",
+		Enabled:       true,
+		Artifacts:     []string{"md", "progress.md"},
+		StoreRoot:     storeRoot,
+		RestoreMode:   config.RestoreModePrompt,
+		MaxFileSizeMB: config.DefaultMaxFileSizeMB,
+	}
+	writeRepoConfig(t, repoDir, cfg)
+
+	mainScope := filepath.Join(storeRoot, "repos", cfg.RepoID, "worktrees", "main")
+	_, err := snapshots.PublishSnapshot(mainScope, "abc123", nil, snapshots.Meta{
+		CommitSHA:    "abc123",
+		Branch:       "main",
+		CreatedAt:    "2026-03-02T08:00:00Z",
+		SnapshotKind: snapshots.SnapshotKindNormal,
+	})
+	if err != nil {
+		t.Fatalf("publish main snapshot: %v", err)
+	}
+
+	_, err = snapshots.PublishOrphanSnapshot(mainScope, "orphan-xyz", nil, snapshots.Meta{
+		CreatedAt:             "2026-03-02T09:00:00Z",
+		TriggeringCheckoutSHA: "checkout-999",
+		WorktreeID:            "main",
+	})
+	if err != nil {
+		t.Fatalf("publish orphan snapshot: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := runList(repoDir, []string{"--orphans"}, &stdout); err != nil {
+		t.Fatalf("runList(--orphans) error = %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "ORPHAN_ID") || !strings.Contains(out, "TRIGGERING_CHECKOUT_SHA") {
+		t.Fatalf("expected orphan columns in list --orphans output, got %q", out)
+	}
+	if !strings.Contains(out, "orphan-xyz") {
+		t.Fatalf("expected orphan id in list output, got %q", out)
+	}
+	if !strings.Contains(out, "checkout-999") {
+		t.Fatalf("expected triggering checkout sha in list output, got %q", out)
+	}
+}

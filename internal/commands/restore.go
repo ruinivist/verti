@@ -100,9 +100,51 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 
 	switch targetKind {
 	case "orphan":
-		// Orphan restore behavior is implemented in a later task.
-		_ = target
-		_ = stderr
+		orphanPath, found, err := snapshots.FindOrphanSnapshot(scopeDir, target)
+		if err != nil {
+			return fmt.Errorf("lookup orphan snapshot %q: %w", target, err)
+		}
+		if !found {
+			return nil
+		}
+
+		manifest, err := loadSnapshotManifest(orphanPath)
+		if err != nil {
+			return err
+		}
+		meta, err := loadSnapshotMeta(orphanPath)
+		if err != nil {
+			return err
+		}
+
+		currentPaths, err := currentPresentArtifactPaths(repoRoot, cfg.Artifacts)
+		if err != nil {
+			return err
+		}
+		plan, err := restoreplan.BuildPlan(repoRoot, manifest.Entries, currentPaths)
+		if err != nil {
+			return fmt.Errorf("build restore plan for orphan %q: %w", target, err)
+		}
+
+		targetLabel := "orphan:" + target
+		if strings.TrimSpace(meta.TriggeringCheckoutSHA) != "" {
+			targetLabel = meta.TriggeringCheckoutSHA
+		}
+
+		if err := applyRestorePlanHook(restoreApplyContext{
+			TargetSHA:    targetLabel,
+			SnapshotPath: orphanPath,
+			OrphanID:     target,
+			OrphanPath:   orphanPath,
+			Plan:         plan,
+			Manifest:     manifest.Entries,
+			RepoRoot:     repoRoot,
+			StoreRoot:    storeRoot,
+			RepoID:       cfg.RepoID,
+			WorktreeID:   worktreeID.WorktreeID,
+		}); err != nil {
+			return fmt.Errorf("apply restore plan for orphan %q: %w", target, err)
+		}
 		return nil
 	case "snapshot":
 		snapshotPath, found, err := snapshots.FindSnapshot(scopeDir, target)

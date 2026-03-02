@@ -16,10 +16,12 @@ import (
 )
 
 type listRow struct {
-	Commit    string
-	Branch    string
-	CreatedAt string
-	Kind      string
+	Commit                string
+	Branch                string
+	CreatedAt             string
+	Kind                  string
+	OrphanID              string
+	TriggeringCheckoutSHA string
 }
 
 // RunList prints snapshots for the current worktree.
@@ -28,8 +30,9 @@ func RunList(workingDir string, args []string) error {
 }
 
 func runList(workingDir string, args []string, stdout io.Writer) error {
-	if len(args) != 0 {
-		return &cli.UsageError{Message: "list does not accept positional arguments"}
+	includeOrphans, err := parseListArgs(args)
+	if err != nil {
+		return err
 	}
 
 	cfg, err := loadRepoConfig(workingDir)
@@ -53,19 +56,30 @@ func runList(workingDir string, args []string, stdout io.Writer) error {
 		return fmt.Errorf("resolve worktree identity: %w", err)
 	}
 
-	snapshotsDir := filepath.Join(storeRoot, "repos", cfg.RepoID, "worktrees", worktreeID.WorktreeID, "snapshots")
-	rows, err := loadListRows(snapshotsDir)
+	worktreeRoot := filepath.Join(storeRoot, "repos", cfg.RepoID, "worktrees", worktreeID.WorktreeID)
+	rows, err := loadListRows(filepath.Join(worktreeRoot, "snapshots"), filepath.Join(worktreeRoot, "orphans"), includeOrphans)
 	if err != nil {
 		return err
 	}
 
-	return writeListRows(stdout, rows)
+	return writeListRows(stdout, rows, includeOrphans)
 }
 
-func loadListRows(snapshotsDir string) ([]listRow, error) {
+func parseListArgs(args []string) (includeOrphans bool, err error) {
+	if len(args) == 0 {
+		return false, nil
+	}
+	if len(args) == 1 && args[0] == "--orphans" {
+		return true, nil
+	}
+	return false, &cli.UsageError{Message: "list accepts no positional args; use --orphans to include orphan snapshots"}
+}
+
+func loadListRows(snapshotsDir, orphansDir string, includeOrphans bool) ([]listRow, error) {
 	entries, err := os.ReadDir(snapshotsDir)
 	if os.IsNotExist(err) {
-		return nil, nil
+		entries = nil
+		err = nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read snapshots directory %q: %w", snapshotsDir, err)
@@ -96,11 +110,58 @@ func loadListRows(snapshotsDir string) ([]listRow, error) {
 		}
 
 		rows = append(rows, listRow{
-			Commit:    commit,
-			Branch:    meta.Branch,
-			CreatedAt: meta.CreatedAt,
-			Kind:      kind,
+			Commit:                commit,
+			Branch:                meta.Branch,
+			CreatedAt:             meta.CreatedAt,
+			Kind:                  kind,
+			OrphanID:              "",
+			TriggeringCheckoutSHA: "",
 		})
+	}
+
+	if includeOrphans {
+		orphanEntries, err := os.ReadDir(orphansDir)
+		if os.IsNotExist(err) {
+			orphanEntries = nil
+			err = nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read orphans directory %q: %w", orphansDir, err)
+		}
+
+		for _, entry := range orphanEntries {
+			if !entry.IsDir() {
+				continue
+			}
+			if entry.Name() == ".tmp" {
+				continue
+			}
+
+			orphanDir := filepath.Join(orphansDir, entry.Name())
+			meta, err := readSnapshotMetaForList(orphanDir)
+			if err != nil {
+				return nil, err
+			}
+
+			orphanID := meta.OrphanID
+			if orphanID == "" {
+				orphanID = entry.Name()
+			}
+
+			kind := meta.SnapshotKind
+			if kind == "" {
+				kind = snapshots.SnapshotKindOrphan
+			}
+
+			rows = append(rows, listRow{
+				Commit:                "",
+				Branch:                "",
+				CreatedAt:             meta.CreatedAt,
+				Kind:                  kind,
+				OrphanID:              orphanID,
+				TriggeringCheckoutSHA: meta.TriggeringCheckoutSHA,
+			})
+		}
 	}
 
 	sort.Slice(rows, func(i, j int) bool {
@@ -112,7 +173,10 @@ func loadListRows(snapshotsDir string) ([]listRow, error) {
 		if rows[i].CreatedAt != rows[j].CreatedAt {
 			return rows[i].CreatedAt > rows[j].CreatedAt
 		}
-		return rows[i].Commit < rows[j].Commit
+		if rows[i].Commit != rows[j].Commit {
+			return rows[i].Commit < rows[j].Commit
+		}
+		return rows[i].OrphanID < rows[j].OrphanID
 	})
 
 	return rows, nil
@@ -132,18 +196,26 @@ func readSnapshotMetaForList(snapshotDir string) (snapshots.Meta, error) {
 	return meta, nil
 }
 
-func writeListRows(w io.Writer, rows []listRow) error {
+func writeListRows(w io.Writer, rows []listRow, includeOrphans bool) error {
 	if w == nil {
 		return nil
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(tw, "COMMIT\tBRANCH\tCREATED_AT\tKIND"); err != nil {
+	header := "COMMIT\tBRANCH\tCREATED_AT\tKIND"
+	if includeOrphans {
+		header += "\tORPHAN_ID\tTRIGGERING_CHECKOUT_SHA"
+	}
+	if _, err := fmt.Fprintln(tw, header); err != nil {
 		return fmt.Errorf("write list header: %w", err)
 	}
 
 	for _, row := range rows {
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", row.Commit, row.Branch, row.CreatedAt, row.Kind); err != nil {
+		line := fmt.Sprintf("%s\t%s\t%s\t%s", row.Commit, row.Branch, row.CreatedAt, row.Kind)
+		if includeOrphans {
+			line += fmt.Sprintf("\t%s\t%s", row.OrphanID, row.TriggeringCheckoutSHA)
+		}
+		if _, err := fmt.Fprintln(tw, line); err != nil {
 			return fmt.Errorf("write list row for commit %q: %w", row.Commit, err)
 		}
 	}

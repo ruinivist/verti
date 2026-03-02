@@ -12,8 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"verti/internal/artifacts"
 	"verti/internal/cli"
 	"verti/internal/config"
+	"verti/internal/snapshots"
 )
 
 func TestRunRestoreMissingSnapshotNoOpLeavesFilesUnchanged(t *testing.T) {
@@ -602,6 +604,84 @@ func TestRunRestoreSkipModeExitsWithoutPromptOrApply(t *testing.T) {
 	}
 	if stderr.String() != "" {
 		t.Fatalf("skip mode should exit silently, got stderr %q", stderr.String())
+	}
+}
+
+func TestRunRestoreOrphanAppliesOrphanSnapshot(t *testing.T) {
+	requireGit(t)
+
+	repoDir := createGitRepoWithArtifacts(t)
+	storeRoot := filepath.Join(t.TempDir(), "store")
+	cfg := config.Config{
+		RepoID:        "repo-restore-orphan-apply",
+		Enabled:       true,
+		Artifacts:     []string{"md", "progress.md"},
+		StoreRoot:     storeRoot,
+		RestoreMode:   config.RestoreModePrompt,
+		MaxFileSizeMB: config.DefaultMaxFileSizeMB,
+	}
+	writeRepoConfig(t, repoDir, cfg)
+
+	var snapshotStderr bytes.Buffer
+	if err := runSnapshot(repoDir, &snapshotStderr); err != nil {
+		t.Fatalf("runSnapshot() error = %v", err)
+	}
+
+	entries, err := artifacts.BuildManifestEntries(repoDir, cfg.Artifacts)
+	if err != nil {
+		t.Fatalf("build manifest entries: %v", err)
+	}
+
+	scopeDir := filepath.Join(storeRoot, "repos", cfg.RepoID, "worktrees", "main")
+	orphanID := "orphan-restore-1"
+	if _, err := snapshots.PublishOrphanSnapshot(scopeDir, orphanID, entries, snapshots.Meta{
+		WorktreeID:            "main",
+		CreatedAt:             "2026-03-02T10:00:00Z",
+		TriggeringCheckoutSHA: "checkout-123",
+	}); err != nil {
+		t.Fatalf("publish orphan snapshot: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(repoDir, "progress.md"), []byte("mutated progress\n"), 0o644); err != nil {
+		t.Fatalf("mutate progress.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "md", "note.md"), []byte("mutated note\n"), 0o644); err != nil {
+		t.Fatalf("mutate md/note.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "md", "stale.tmp"), []byte("stale\n"), 0o644); err != nil {
+		t.Fatalf("write stale file: %v", err)
+	}
+
+	origOpenTTY := openPromptTTY
+	openPromptTTY = func() (io.ReadWriteCloser, error) {
+		t.Fatalf("orphan restore should not use interactive prompt")
+		return nil, nil
+	}
+	t.Cleanup(func() { openPromptTTY = origOpenTTY })
+
+	var restoreStderr bytes.Buffer
+	if err := runRestore(repoDir, []string{"--orphan", orphanID}, &restoreStderr); err != nil {
+		t.Fatalf("runRestore(--orphan) error = %v", err)
+	}
+
+	progressRaw, err := os.ReadFile(filepath.Join(repoDir, "progress.md"))
+	if err != nil {
+		t.Fatalf("read restored progress.md: %v", err)
+	}
+	if string(progressRaw) != "progress\n" {
+		t.Fatalf("progress.md = %q, want %q", string(progressRaw), "progress\n")
+	}
+
+	noteRaw, err := os.ReadFile(filepath.Join(repoDir, "md", "note.md"))
+	if err != nil {
+		t.Fatalf("read restored md/note.md: %v", err)
+	}
+	if string(noteRaw) != "note\n" {
+		t.Fatalf("md/note.md = %q, want %q", string(noteRaw), "note\n")
+	}
+
+	if _, err := os.Stat(filepath.Join(repoDir, "md", "stale.tmp")); !os.IsNotExist(err) {
+		t.Fatalf("expected stale path removed after orphan restore, stat err=%v", err)
 	}
 }
 

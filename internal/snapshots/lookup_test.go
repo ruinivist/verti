@@ -40,3 +40,38 @@ func TestFindSnapshotExistingReturnsPathAndTrue(t *testing.T) {
 		t.Fatalf("FindSnapshot() path = %q, want %q", path, want)
 	}
 }
+
+func TestFindOrphanSnapshotMissingReturnsFalse(t *testing.T) {
+	scopeDir := t.TempDir()
+
+	path, found, err := FindOrphanSnapshot(scopeDir, "orphan-1")
+	if err != nil {
+		t.Fatalf("FindOrphanSnapshot() error = %v", err)
+	}
+	if found {
+		t.Fatalf("FindOrphanSnapshot() found = true, want false")
+	}
+	want := filepath.Join(scopeDir, "orphans", "orphan-1")
+	if path != want {
+		t.Fatalf("FindOrphanSnapshot() path = %q, want %q", path, want)
+	}
+}
+
+func TestFindOrphanSnapshotExistingReturnsPathAndTrue(t *testing.T) {
+	scopeDir := t.TempDir()
+	want := filepath.Join(scopeDir, "orphans", "orphan-abc")
+	if err := os.MkdirAll(want, 0o755); err != nil {
+		t.Fatalf("mkdir orphan snapshot dir: %v", err)
+	}
+
+	path, found, err := FindOrphanSnapshot(scopeDir, "orphan-abc")
+	if err != nil {
+		t.Fatalf("FindOrphanSnapshot() error = %v", err)
+	}
+	if !found {
+		t.Fatalf("FindOrphanSnapshot() found = false, want true")
+	}
+	if path != want {
+		t.Fatalf("FindOrphanSnapshot() path = %q, want %q", path, want)
+	}
+}
