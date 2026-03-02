@@ -11,6 +11,7 @@ import (
 	"verti/internal/config"
 	"verti/internal/git"
 	"verti/internal/identity"
+	"verti/internal/reporting"
 	"verti/internal/snapshots"
 	"verti/internal/store"
 )
@@ -43,7 +44,7 @@ func runSnapshot(workingDir string, stderr io.Writer) error {
 	cfgPath := filepath.Join(commonGitDir, "verti.toml")
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return reporting.Wrap(reporting.ClassConfig, "load config", err)
 	}
 	if !cfg.Enabled {
 		return nil
@@ -81,7 +82,7 @@ func runSnapshot(workingDir string, stderr io.Writer) error {
 		WorktreePathFingerprint: worktreeID.WorktreePathFingerprint,
 	}
 	if _, err := snapshots.PublishSnapshot(scopeDir, headSHA, manifestEntries, meta); err != nil {
-		return fmt.Errorf("publish snapshot for %s: %w", headSHA, err)
+		return reporting.Wrap(reporting.ClassStore, "publish snapshot", err)
 	}
 	if err := cleanupWorktreeQuarantineSessions(storeRoot, cfg.RepoID, worktreeID.WorktreeID); err != nil {
 		warnf(stderr, "warning: unable to clean worktree quarantine sessions: %v", err)

@@ -8,6 +8,7 @@ import (
 
 	"verti/internal/cli"
 	"verti/internal/commands"
+	"verti/internal/reporting"
 )
 
 func main() {
@@ -52,7 +53,7 @@ func run(args []string, stdout, stderr io.Writer, handlers cli.Handlers) int {
 		return 0
 	}
 
-	fmt.Fprintf(stderr, "verti: %v\n", err)
+	fmt.Fprintf(stderr, "verti: %s\n", reporting.Format(err, reporting.DebugEnabled()))
 
 	var usageErr *cli.UsageError
 	if errors.As(err, &usageErr) {

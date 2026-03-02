@@ -16,6 +16,7 @@ import (
 	"verti/internal/config"
 	"verti/internal/git"
 	"verti/internal/identity"
+	"verti/internal/reporting"
 	"verti/internal/restoremode"
 	"verti/internal/restoreplan"
 	"verti/internal/snapshots"
@@ -123,7 +124,7 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 		}
 		plan, err := restoreplan.BuildPlan(repoRoot, manifest.Entries, currentPaths)
 		if err != nil {
-			return fmt.Errorf("build restore plan for orphan %q: %w", target, err)
+			return reporting.Wrap(reporting.ClassRestore, "build restore plan", err)
 		}
 
 		targetLabel := "orphan:" + target
@@ -143,7 +144,7 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 			RepoID:       cfg.RepoID,
 			WorktreeID:   worktreeID.WorktreeID,
 		}); err != nil {
-			return fmt.Errorf("apply restore plan for orphan %q: %w", target, err)
+			return reporting.Wrap(reporting.ClassRestore, "apply restore plan", err)
 		}
 		return nil
 	case "snapshot":
@@ -169,7 +170,7 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 		}
 		plan, err := restoreplan.BuildPlan(repoRoot, manifest.Entries, currentPaths)
 		if err != nil {
-			return fmt.Errorf("build restore plan for snapshot %q: %w", target, err)
+			return reporting.Wrap(reporting.ClassRestore, "build restore plan", err)
 		}
 
 		orphanID, orphanPath, err := createPreRestoreOrphanSnapshot(repoRoot, scopeDir, storeRoot, cfg, worktreeID, target, stderr)
@@ -219,7 +220,7 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 			RepoID:       cfg.RepoID,
 			WorktreeID:   worktreeID.WorktreeID,
 		}); err != nil {
-			return fmt.Errorf("apply restore plan for snapshot %q: %w", target, err)
+			return reporting.Wrap(reporting.ClassRestore, "apply restore plan", err)
 		}
 
 		return nil
@@ -259,7 +260,7 @@ func loadRepoConfig(workingDir string) (config.Config, error) {
 	cfgPath := filepath.Join(commonGitDir, "verti.toml")
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		return config.Config{}, fmt.Errorf("load config: %w", err)
+		return config.Config{}, reporting.Wrap(reporting.ClassConfig, "load config", err)
 	}
 
 	return cfg, nil
