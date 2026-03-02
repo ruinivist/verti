@@ -33,6 +33,13 @@ func main() {
 		}
 		return commands.RunRestore(wd, args)
 	}
+	handlers.List = func(args []string) error {
+		wd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("resolve working directory: %w", err)
+		}
+		return commands.RunList(wd, args)
+	}
 
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, handlers))
 }
