@@ -12,7 +12,7 @@ import (
 
 const (
 	dispatcherMarker = "# verti-hooks"
-	backupSuffix     = ".verti.backup"
+	backupSuffix     = ".verti.orig-hooks"
 )
 
 // InstallResult describes what happened during dispatcher installation.

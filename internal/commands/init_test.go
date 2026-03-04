@@ -131,7 +131,7 @@ func TestRunInitIsIdempotentForInstalledDispatchers(t *testing.T) {
 			t.Fatalf("hook %q changed across idempotent rerun", hookName)
 		}
 
-		backupPattern := hookPath + ".verti.backup*"
+			backupPattern := hookPath + ".verti.orig-hooks*"
 		backupMatches, err := filepath.Glob(backupPattern)
 		if err != nil {
 			t.Fatalf("glob %q: %v", backupPattern, err)

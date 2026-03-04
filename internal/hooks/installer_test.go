@@ -18,7 +18,7 @@ func TestInstallHookDispatcherCapturesForeignHookToFirstBackupSlot(t *testing.T)
 		t.Fatalf("InstallHookDispatcher() error = %v", err)
 	}
 
-	backupPath := hookPath + ".verti.backup"
+	backupPath := hookPath + ".verti.orig-hooks"
 	gotBackup := mustRead(t, backupPath)
 	if gotBackup != foreign {
 		t.Fatalf("backup content mismatch:\n got %q\nwant %q", gotBackup, foreign)
@@ -38,7 +38,7 @@ func TestInstallHookDispatcherReusesExistingBackupSlotForDuplicateContent(t *tes
 	hookPath := filepath.Join(hookDir, PostCommitHook)
 	foreign := "#!/usr/bin/env bash\necho foreign\n"
 
-	mustWriteExecutable(t, hookPath+".verti.backup", foreign)
+	mustWriteExecutable(t, hookPath+".verti.orig-hooks", foreign)
 	mustWriteExecutable(t, hookPath, foreign)
 
 	_, err := InstallHookDispatcher(hookPath, PostCommitHook, "/abs/path/verti")
@@ -46,12 +46,12 @@ func TestInstallHookDispatcherReusesExistingBackupSlotForDuplicateContent(t *tes
 		t.Fatalf("InstallHookDispatcher() error = %v", err)
 	}
 
-	if _, err := os.Stat(hookPath + ".verti.backup1"); err == nil {
+	if _, err := os.Stat(hookPath + ".verti.orig-hooks1"); err == nil {
 		t.Fatalf("expected no new backup1 slot when duplicate content exists")
 	}
 
 	dispatcher := mustRead(t, hookPath)
-	if !strings.Contains(dispatcher, "LEGACY_HOOK=\""+hookPath+".verti.backup\"") {
+	if !strings.Contains(dispatcher, "LEGACY_HOOK=\""+hookPath+".verti.orig-hooks\"") {
 		t.Fatalf("dispatcher did not reuse existing backup slot:\n%s", dispatcher)
 	}
 }
@@ -99,18 +99,18 @@ func TestInstallHookDispatcherCapturesOverwriteToNextSlotAndPointsDispatcherToLa
 		t.Fatalf("InstallHookDispatcher(second) error = %v", err)
 	}
 
-	if got := mustRead(t, hookPath+".verti.backup"); got != foreignA {
+	if got := mustRead(t, hookPath+".verti.orig-hooks"); got != foreignA {
 		t.Fatalf("backup slot 0 mismatch:\n got %q\nwant %q", got, foreignA)
 	}
-	if got := mustRead(t, hookPath+".verti.backup1"); got != foreignB {
+	if got := mustRead(t, hookPath+".verti.orig-hooks1"); got != foreignB {
 		t.Fatalf("backup slot 1 mismatch:\n got %q\nwant %q", got, foreignB)
 	}
 
 	dispatcher := mustRead(t, hookPath)
-	if !strings.Contains(dispatcher, "LEGACY_HOOK=\""+hookPath+".verti.backup1\"") {
+	if !strings.Contains(dispatcher, "LEGACY_HOOK=\""+hookPath+".verti.orig-hooks1\"") {
 		t.Fatalf("dispatcher does not point to latest backup slot:\n%s", dispatcher)
 	}
-	if strings.Contains(dispatcher, "LEGACY_HOOK=\""+hookPath+".verti.backup\"") {
+	if strings.Contains(dispatcher, "LEGACY_HOOK=\""+hookPath+".verti.orig-hooks\"") {
 		t.Fatalf("dispatcher should not point to old backup slot:\n%s", dispatcher)
 	}
 }
