@@ -63,6 +63,8 @@ func Dispatch(args []string, handlers Handlers) error {
 	}
 }
 
+// this is a just a nil check wrapper to avoid ugly panics, in case
+// handler is used with no corresponding function set
 func callHandler(command string, handler Handler, args []string) error {
 	if handler == nil {
 		return fmt.Errorf("%s handler is not configured", command)
