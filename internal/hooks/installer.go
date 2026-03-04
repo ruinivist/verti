@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 )
@@ -21,7 +20,7 @@ type InstallResult struct {
 	LegacyHookPath string
 }
 
-// InstallHookDispatcher installs a Verti disiatiher at hookPath with backup of existing
+// InstallHookDispatcher installs a Verti dispatcher at hookPath and preserves any existing hook in backup slots.
 func InstallHookDispatcher(hookPath, hookName, vertiBinPath string) (InstallResult, error) {
 	if err := os.MkdirAll(filepath.Dir(hookPath), 0o755); err != nil {
 		return InstallResult{}, fmt.Errorf("create hook dir for %q: %w", hookPath, err)
@@ -36,7 +35,7 @@ func InstallHookDispatcher(hookPath, hookName, vertiBinPath string) (InstallResu
 		return InstallResult{NoOp: true}, nil
 	}
 
-	legacyHookPath := hookPath + backupSuffix
+	legacyHookPath := backupSlotPath(hookPath, 0)
 	if currentHook.exists {
 		legacyHookPath, err = ensureBackupSlot(hookPath, currentHook.data, currentHook.info.Mode().Perm())
 		if err != nil {
@@ -59,24 +58,12 @@ func InstallHookDispatcher(hookPath, hookName, vertiBinPath string) (InstallResu
 	}, nil
 }
 
+// ensureBackupSlot writes foreignContent to the next backup slot and returns that slot path.
 func ensureBackupSlot(hookPath string, foreignContent []byte, mode os.FileMode) (string, error) {
-	slots, err := existingBackupSlots(hookPath)
+	next, err := nextBackupSlot(hookPath)
 	if err != nil {
 		return "", err
 	}
-
-	for _, idx := range sortedKeys(slots) {
-		slotPath := slots[idx]
-		slot, err := readFileWithInfo(slotPath)
-		if err != nil {
-			return "", err
-		}
-		if slot.exists && bytes.Equal(slot.data, foreignContent) {
-			return slotPath, nil
-		}
-	}
-
-	next := firstMissingSlot(slots)
 	slotPath := backupSlotPath(hookPath, next)
 	if err := writeFileAtomically(slotPath, foreignContent, modeOrDefault(mode, 0o755)); err != nil {
 		return "", err
@@ -84,70 +71,54 @@ func ensureBackupSlot(hookPath string, foreignContent []byte, mode os.FileMode) 
 	return slotPath, nil
 }
 
-func existingBackupSlots(hookPath string) (map[int]string, error) {
-	base := hookPath + backupSuffix
-	pattern := base + "*"
-
-	matches, err := filepath.Glob(pattern)
-	if err != nil {
-		return nil, fmt.Errorf("scan backup slots for %q: %w", hookPath, err)
-	}
-
-	slots := make(map[int]string, len(matches))
-	for _, match := range matches {
-		idx, ok := parseBackupIndex(base, match)
-		if !ok {
-			continue
-		}
-		slots[idx] = match
-	}
-
-	return slots, nil
-}
-
+// parseBackupIndex parses a dotted backup slot suffix and returns its numeric index.
 func parseBackupIndex(base, path string) (int, bool) {
-	if path == base {
-		return 0, true
-	}
-	if !strings.HasPrefix(path, base) {
+	prefix := base + "."
+	if !strings.HasPrefix(path, prefix) {
 		return 0, false
 	}
-	suffix := strings.TrimPrefix(path, base)
+	suffix := strings.TrimPrefix(path, prefix)
 	if suffix == "" {
-		return 0, true
+		return 0, false
 	}
 	idx, err := strconv.Atoi(suffix)
-	if err != nil || idx < 1 {
+	if err != nil || idx < 0 {
 		return 0, false
 	}
 	return idx, true
 }
 
-func firstMissingSlot(slots map[int]string) int {
-	for i := 0; ; i++ {
-		if _, ok := slots[i]; !ok {
-			return i
+// nextBackupSlot scans dotted backup files and returns the next monotonic slot index after the current maximum.
+func nextBackupSlot(hookPath string) (int, error) {
+	base := hookPath + backupSuffix
+	pattern := base + ".*"
+
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return 0, fmt.Errorf("scan backup slots for %q: %w", hookPath, err)
+	}
+
+	next := 0
+	for _, match := range matches {
+		idx, ok := parseBackupIndex(base, match)
+		if !ok {
+			continue
+		}
+		if idx >= next {
+			next = idx + 1
 		}
 	}
+
+	return next, nil
 }
 
+// backupSlotPath builds the full backup file path for a given hook path and slot index.
 func backupSlotPath(hookPath string, slot int) string {
 	base := hookPath + backupSuffix
-	if slot == 0 {
-		return base
-	}
-	return base + strconv.Itoa(slot)
+	return base + "." + strconv.Itoa(slot)
 }
 
-func sortedKeys(m map[int]string) []int {
-	keys := make([]int, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	return keys
-}
-
+// modeOrDefault returns mode unless it is zero, in which case it returns fallback.
 func modeOrDefault(mode, fallback os.FileMode) os.FileMode {
 	if mode == 0 {
 		return fallback
@@ -161,6 +132,7 @@ type fileReadResult struct {
 	exists bool
 }
 
+// readFileWithInfo reads file bytes and stat info, reporting exists=false when the path is missing.
 func readFileWithInfo(path string) (fileReadResult, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -182,6 +154,7 @@ func readFileWithInfo(path string) (fileReadResult, error) {
 	}, nil
 }
 
+// writeFileAtomically writes data via a temp file and renames it into place with the requested mode.
 func writeFileAtomically(path string, data []byte, mode os.FileMode) error {
 	tmpPath := path + ".tmp"
 

@@ -274,15 +274,15 @@ func TestMVPAcceptanceMatrixAC1ToAC9(t *testing.T) {
 			t.Fatalf("runInit(second) error = %v", err)
 		}
 
-			backup0 := mustReadFile(t, hookPath+".verti.orig-hooks")
-			backup1 := mustReadFile(t, hookPath+".verti.orig-hooks1")
+		backup0 := mustReadFile(t, hookPath+".verti.orig-hooks.0")
+		backup1 := mustReadFile(t, hookPath+".verti.orig-hooks.1")
 		dispatcher := mustReadFile(t, hookPath)
 		if backup0 != first || backup1 != second {
 			t.Fatalf("unexpected backup slot contents")
 		}
-			if !strings.Contains(dispatcher, "LEGACY_HOOK=\""+hookPath+".verti.orig-hooks1\"") {
-				t.Fatalf("dispatcher should execute latest backup slot only")
-			}
+		if !strings.Contains(dispatcher, "LEGACY_HOOK=\""+hookPath+".verti.orig-hooks.1\"") {
+			t.Fatalf("dispatcher should execute latest backup slot only")
+		}
 	})
 
 	t.Run("AC9_list_formatted_with_orphans_and_worktree_isolation", func(t *testing.T) {

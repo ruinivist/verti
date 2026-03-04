@@ -96,9 +96,9 @@ func TestRunInitInstallsAllRequiredDispatchers(t *testing.T) {
 		}
 
 		content := mustReadFile(t, hookPath)
-			if !strings.Contains(content, "# verti-hooks") {
-				t.Fatalf("hook %q missing dispatcher marker:\n%s", hookPath, content)
-			}
+		if !strings.Contains(content, "# verti-hooks") {
+			t.Fatalf("hook %q missing dispatcher marker:\n%s", hookPath, content)
+		}
 		if !strings.Contains(content, "VERTI_BIN=\"/abs/path/to/verti\"") {
 			t.Fatalf("hook %q missing embedded verti binary path:\n%s", hookPath, content)
 		}
@@ -131,7 +131,7 @@ func TestRunInitIsIdempotentForInstalledDispatchers(t *testing.T) {
 			t.Fatalf("hook %q changed across idempotent rerun", hookName)
 		}
 
-			backupPattern := hookPath + ".verti.orig-hooks*"
+		backupPattern := hookPath + ".verti.orig-hooks.*"
 		backupMatches, err := filepath.Glob(backupPattern)
 		if err != nil {
 			t.Fatalf("glob %q: %v", backupPattern, err)

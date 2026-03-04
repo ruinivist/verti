@@ -18,7 +18,7 @@ func TestInstallHookDispatcherCapturesForeignHookToFirstBackupSlot(t *testing.T)
 		t.Fatalf("InstallHookDispatcher() error = %v", err)
 	}
 
-	backupPath := hookPath + ".verti.orig-hooks"
+	backupPath := hookPath + ".verti.orig-hooks.0"
 	gotBackup := mustRead(t, backupPath)
 	if gotBackup != foreign {
 		t.Fatalf("backup content mismatch:\n got %q\nwant %q", gotBackup, foreign)
@@ -33,12 +33,12 @@ func TestInstallHookDispatcherCapturesForeignHookToFirstBackupSlot(t *testing.T)
 	}
 }
 
-func TestInstallHookDispatcherReusesExistingBackupSlotForDuplicateContent(t *testing.T) {
+func TestInstallHookDispatcherAlwaysAllocatesNewBackupSlotForDuplicateContent(t *testing.T) {
 	hookDir := t.TempDir()
 	hookPath := filepath.Join(hookDir, PostCommitHook)
 	foreign := "#!/usr/bin/env bash\necho foreign\n"
 
-	mustWriteExecutable(t, hookPath+".verti.orig-hooks", foreign)
+	mustWriteExecutable(t, hookPath+".verti.orig-hooks.0", foreign)
 	mustWriteExecutable(t, hookPath, foreign)
 
 	_, err := InstallHookDispatcher(hookPath, PostCommitHook, "/abs/path/verti")
@@ -46,13 +46,13 @@ func TestInstallHookDispatcherReusesExistingBackupSlotForDuplicateContent(t *tes
 		t.Fatalf("InstallHookDispatcher() error = %v", err)
 	}
 
-	if _, err := os.Stat(hookPath + ".verti.orig-hooks1"); err == nil {
-		t.Fatalf("expected no new backup1 slot when duplicate content exists")
+	if got := mustRead(t, hookPath+".verti.orig-hooks.1"); got != foreign {
+		t.Fatalf("backup slot 1 mismatch:\n got %q\nwant %q", got, foreign)
 	}
 
 	dispatcher := mustRead(t, hookPath)
-	if !strings.Contains(dispatcher, "LEGACY_HOOK=\""+hookPath+".verti.orig-hooks\"") {
-		t.Fatalf("dispatcher did not reuse existing backup slot:\n%s", dispatcher)
+	if !strings.Contains(dispatcher, "LEGACY_HOOK=\""+hookPath+".verti.orig-hooks.1\"") {
+		t.Fatalf("dispatcher does not point to latest backup slot:\n%s", dispatcher)
 	}
 }
 
@@ -99,19 +99,71 @@ func TestInstallHookDispatcherCapturesOverwriteToNextSlotAndPointsDispatcherToLa
 		t.Fatalf("InstallHookDispatcher(second) error = %v", err)
 	}
 
-	if got := mustRead(t, hookPath+".verti.orig-hooks"); got != foreignA {
+	if got := mustRead(t, hookPath+".verti.orig-hooks.0"); got != foreignA {
 		t.Fatalf("backup slot 0 mismatch:\n got %q\nwant %q", got, foreignA)
 	}
-	if got := mustRead(t, hookPath+".verti.orig-hooks1"); got != foreignB {
+	if got := mustRead(t, hookPath+".verti.orig-hooks.1"); got != foreignB {
 		t.Fatalf("backup slot 1 mismatch:\n got %q\nwant %q", got, foreignB)
 	}
 
 	dispatcher := mustRead(t, hookPath)
-	if !strings.Contains(dispatcher, "LEGACY_HOOK=\""+hookPath+".verti.orig-hooks1\"") {
+	if !strings.Contains(dispatcher, "LEGACY_HOOK=\""+hookPath+".verti.orig-hooks.1\"") {
 		t.Fatalf("dispatcher does not point to latest backup slot:\n%s", dispatcher)
 	}
-	if strings.Contains(dispatcher, "LEGACY_HOOK=\""+hookPath+".verti.orig-hooks\"") {
+	if strings.Contains(dispatcher, "LEGACY_HOOK=\""+hookPath+".verti.orig-hooks.0\"") {
 		t.Fatalf("dispatcher should not point to old backup slot:\n%s", dispatcher)
+	}
+}
+
+func TestInstallHookDispatcherAppendsAfterHighestExistingSlot(t *testing.T) {
+	hookDir := t.TempDir()
+	hookPath := filepath.Join(hookDir, PostMergeHook)
+
+	mustWriteExecutable(t, hookPath+".verti.orig-hooks.0", "#!/usr/bin/env bash\necho zero\n")
+	mustWriteExecutable(t, hookPath+".verti.orig-hooks.2", "#!/usr/bin/env bash\necho two\n")
+
+	foreign := "#!/usr/bin/env bash\necho latest\n"
+	mustWriteExecutable(t, hookPath, foreign)
+
+	_, err := InstallHookDispatcher(hookPath, PostMergeHook, "/abs/path/verti")
+	if err != nil {
+		t.Fatalf("InstallHookDispatcher() error = %v", err)
+	}
+
+	if got := mustRead(t, hookPath+".verti.orig-hooks.3"); got != foreign {
+		t.Fatalf("backup slot 3 mismatch:\n got %q\nwant %q", got, foreign)
+	}
+
+	dispatcher := mustRead(t, hookPath)
+	if !strings.Contains(dispatcher, "LEGACY_HOOK=\""+hookPath+".verti.orig-hooks.3\"") {
+		t.Fatalf("dispatcher should point to next slot after current max:\n%s", dispatcher)
+	}
+}
+
+func TestParseBackupIndexAcceptsDottedNumericSuffixOnly(t *testing.T) {
+	base := filepath.Join("/tmp", "post-commit"+backupSuffix)
+	tests := []struct {
+		name string
+		path string
+		want int
+		ok   bool
+	}{
+		{name: "slot_zero", path: base + ".0", want: 0, ok: true},
+		{name: "slot_twelve", path: base + ".12", want: 12, ok: true},
+		{name: "plain_base_rejected", path: base, want: 0, ok: false},
+		{name: "legacy_non_dotted_rejected", path: base + "1", want: 0, ok: false},
+		{name: "empty_suffix_rejected", path: base + ".", want: 0, ok: false},
+		{name: "negative_rejected", path: base + ".-1", want: 0, ok: false},
+		{name: "nonnumeric_rejected", path: base + ".abc", want: 0, ok: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := parseBackupIndex(base, tc.path)
+			if ok != tc.ok || got != tc.want {
+				t.Fatalf("parseBackupIndex(%q, %q) = (%d, %t), want (%d, %t)", base, tc.path, got, ok, tc.want, tc.ok)
+			}
+		})
 	}
 }
 
