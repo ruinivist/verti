@@ -12,37 +12,28 @@ import (
 )
 
 func main() {
-	handlers := cli.NotImplementedHandlers()
-	handlers.Init = func(_ []string) error {
-		wd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("resolve working directory: %w", err)
-		}
-		return commands.RunInit(wd)
-	}
-	handlers.Snapshot = func(_ []string) error {
-		wd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("resolve working directory: %w", err)
-		}
-		return commands.RunSnapshot(wd)
-	}
-	handlers.Restore = func(args []string) error {
-		wd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("resolve working directory: %w", err)
-		}
-		return commands.RunRestore(wd, args)
-	}
-	handlers.List = func(args []string) error {
-		wd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("resolve working directory: %w", err)
-		}
-		return commands.RunList(wd, args)
+	handlers := cli.Handlers{
+		Init: newHandler(func(wd string, _ []string) error {
+			return commands.RunInit(wd)
+		}),
+		Snapshot: newHandler(func(wd string, _ []string) error {
+			return commands.RunSnapshot(wd)
+		}),
+		Restore: newHandler(commands.RunRestore),
+		List:    newHandler(commands.RunList),
 	}
 
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, handlers))
+}
+
+func newHandler(command func(workingDir string, args []string) error) cli.Handler {
+	return func(args []string) error {
+		wd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("resolve working directory: %w", err)
+		}
+		return command(wd, args)
+	}
 }
 
 func run(args []string, stdout, stderr io.Writer, handlers cli.Handlers) int {

@@ -37,22 +37,6 @@ func WriteUsage(w io.Writer) {
 	fmt.Fprintln(w, usageText)
 }
 
-// NotImplementedHandlers returns stub handlers for bootstrap phase.
-func NotImplementedHandlers() Handlers {
-	return Handlers{
-		Init:     notImplemented("init"),
-		Snapshot: notImplemented("snapshot"),
-		Restore:  notImplemented("restore"),
-		List:     notImplemented("list"),
-	}
-}
-
-func notImplemented(command string) Handler {
-	return func(_ []string) error {
-		return fmt.Errorf("%s: not implemented", command)
-	}
-}
-
 // Dispatch routes args to a subcommand handler.
 func Dispatch(args []string, handlers Handlers) error {
 	if len(args) == 0 {
