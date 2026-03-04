@@ -21,9 +21,9 @@ func TestSnapshotDispatchersContainMarkerSnapshotAndLegacyPassthrough(t *testing
 				t.Fatalf("DispatcherTemplate() error = %v", err)
 			}
 
-			if !strings.Contains(script, "# verti-dispatcher") {
-				t.Fatalf("script missing dispatcher marker:\n%s", script)
-			}
+				if !strings.Contains(script, "# verti-hooks") {
+					t.Fatalf("script missing dispatcher marker:\n%s", script)
+				}
 			if !strings.Contains(script, "\"$VERTI_BIN\" snapshot || true") {
 				t.Fatalf("script missing snapshot call:\n%s", script)
 			}

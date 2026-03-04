@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	dispatcherMarker = "# verti-dispatcher"
+	dispatcherMarker = "# verti-hooks"
 	backupSuffix     = ".verti.backup"
 )
 
@@ -21,24 +21,24 @@ type InstallResult struct {
 	LegacyHookPath string
 }
 
-// InstallHookDispatcher installs a Verti dispatcher at hookPath using the FR1.2 backup protocol.
+// InstallHookDispatcher installs a Verti disiatiher at hookPath with backup of existing
 func InstallHookDispatcher(hookPath, hookName, vertiBinPath string) (InstallResult, error) {
 	if err := os.MkdirAll(filepath.Dir(hookPath), 0o755); err != nil {
 		return InstallResult{}, fmt.Errorf("create hook dir for %q: %w", hookPath, err)
 	}
 
-	currentHook, currentInfo, exists, err := readFileWithInfo(hookPath)
+	currentHook, err := readFileWithInfo(hookPath)
 	if err != nil {
 		return InstallResult{}, err
 	}
 
-	if exists && bytes.Contains(currentHook, []byte(dispatcherMarker)) {
+	if currentHook.exists && bytes.Contains(currentHook.data, []byte(dispatcherMarker)) {
 		return InstallResult{NoOp: true}, nil
 	}
 
 	legacyHookPath := hookPath + backupSuffix
-	if exists {
-		legacyHookPath, err = ensureBackupSlot(hookPath, currentHook, currentInfo.Mode().Perm())
+	if currentHook.exists {
+		legacyHookPath, err = ensureBackupSlot(hookPath, currentHook.data, currentHook.info.Mode().Perm())
 		if err != nil {
 			return InstallResult{}, err
 		}
@@ -67,11 +67,11 @@ func ensureBackupSlot(hookPath string, foreignContent []byte, mode os.FileMode) 
 
 	for _, idx := range sortedKeys(slots) {
 		slotPath := slots[idx]
-		slotContent, _, exists, err := readFileWithInfo(slotPath)
+		slot, err := readFileWithInfo(slotPath)
 		if err != nil {
 			return "", err
 		}
-		if exists && bytes.Equal(slotContent, foreignContent) {
+		if slot.exists && bytes.Equal(slot.data, foreignContent) {
 			return slotPath, nil
 		}
 	}
@@ -155,21 +155,31 @@ func modeOrDefault(mode, fallback os.FileMode) os.FileMode {
 	return mode
 }
 
-func readFileWithInfo(path string) ([]byte, os.FileInfo, bool, error) {
+type fileReadResult struct {
+	data   []byte
+	info   os.FileInfo
+	exists bool
+}
+
+func readFileWithInfo(path string) (fileReadResult, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil, false, nil
+			return fileReadResult{}, nil
 		}
-		return nil, nil, false, fmt.Errorf("stat %q: %w", path, err)
+		return fileReadResult{}, fmt.Errorf("stat %q: %w", path, err)
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil, false, fmt.Errorf("read %q: %w", path, err)
+		return fileReadResult{}, fmt.Errorf("read %q: %w", path, err)
 	}
 
-	return data, info, true, nil
+	return fileReadResult{
+		data:   data,
+		info:   info,
+		exists: true,
+	}, nil
 }
 
 func writeFileAtomically(path string, data []byte, mode os.FileMode) error {

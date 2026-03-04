@@ -25,7 +25,7 @@ func TestInstallHookDispatcherCapturesForeignHookToFirstBackupSlot(t *testing.T)
 	}
 
 	dispatcher := mustRead(t, hookPath)
-	if !strings.Contains(dispatcher, "# verti-dispatcher") {
+	if !strings.Contains(dispatcher, "# verti-hooks") {
 		t.Fatalf("dispatcher missing marker:\n%s", dispatcher)
 	}
 	if !strings.Contains(dispatcher, "LEGACY_HOOK=\""+backupPath+"\"") {

@@ -96,9 +96,9 @@ func TestRunInitInstallsAllRequiredDispatchers(t *testing.T) {
 		}
 
 		content := mustReadFile(t, hookPath)
-		if !strings.Contains(content, "# verti-dispatcher") {
-			t.Fatalf("hook %q missing dispatcher marker:\n%s", hookPath, content)
-		}
+			if !strings.Contains(content, "# verti-hooks") {
+				t.Fatalf("hook %q missing dispatcher marker:\n%s", hookPath, content)
+			}
 		if !strings.Contains(content, "VERTI_BIN=\"/abs/path/to/verti\"") {
 			t.Fatalf("hook %q missing embedded verti binary path:\n%s", hookPath, content)
 		}
