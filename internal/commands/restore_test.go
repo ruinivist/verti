@@ -192,7 +192,7 @@ func TestRunRestoreOrphanMetaIncludesTimestampAndTriggeringCheckoutSHA(t *testin
 		if !entry.IsDir() {
 			continue
 		}
-		if strings.HasPrefix(entry.Name(), ".") {
+		if entry.Name() == ".tmp" {
 			continue
 		}
 		orphanIDs = append(orphanIDs, entry.Name())

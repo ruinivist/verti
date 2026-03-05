@@ -3,6 +3,7 @@ package commands
 import (
 	"bytes"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -156,5 +157,48 @@ func TestRunListWithOrphansIncludesOrphanIDAndCheckoutSHA(t *testing.T) {
 	}
 	if !strings.Contains(out, "checkout-999") {
 		t.Fatalf("expected triggering checkout sha in list output, got %q", out)
+	}
+}
+
+func TestRunListWithOrphansIncludesDotPrefixedOrphanIDs(t *testing.T) {
+	requireGit(t)
+
+	repoDir := createGitRepoWithArtifacts(t)
+	storeRoot := filepath.Join(t.TempDir(), "store")
+	cfg := config.Config{
+		RepoID:        "repo-list-hidden-orphans",
+		Enabled:       true,
+		Artifacts:     []string{"md", "progress.md"},
+		StoreRoot:     storeRoot,
+		RestoreMode:   config.RestoreModePrompt,
+		MaxFileSizeMB: config.DefaultMaxFileSizeMB,
+	}
+	writeRepoConfig(t, repoDir, cfg)
+
+	mainScope := filepath.Join(storeRoot, "repos", cfg.RepoID, "worktrees", "main")
+	if _, err := snapshots.PublishOrphanSnapshot(mainScope, ".orphan-hidden", nil, snapshots.Meta{
+		CreatedAt:             "2026-03-02T11:00:00Z",
+		TriggeringCheckoutSHA: "checkout-hidden",
+		WorktreeID:            "main",
+	}); err != nil {
+		t.Fatalf("publish hidden orphan snapshot: %v", err)
+	}
+
+	// Ensure listing ignores internal staging dir but includes real dot-prefixed orphan IDs.
+	if err := os.MkdirAll(filepath.Join(mainScope, "orphans", ".tmp", "staged"), 0o755); err != nil {
+		t.Fatalf("mkdir internal orphan staging dir: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := runList(repoDir, []string{"--orphans"}, &stdout); err != nil {
+		t.Fatalf("runList(--orphans) error = %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, ".orphan-hidden") {
+		t.Fatalf("expected dot-prefixed orphan id in list output, got %q", out)
+	}
+	if strings.Contains(out, "staged") {
+		t.Fatalf("internal .tmp staging dirs must not appear in list output, got %q", out)
 	}
 }

@@ -106,6 +106,41 @@ func TestBuildManifestEntriesIncludesRequiredFields(t *testing.T) {
 	}
 }
 
+func TestBuildManifestEntriesIncludesHiddenPathsWithinArtifacts(t *testing.T) {
+	repoRoot := t.TempDir()
+	createMixedFixture(t, repoRoot)
+
+	if err := os.MkdirAll(filepath.Join(repoRoot, "md", ".hidden-dir"), 0o755); err != nil {
+		t.Fatalf("mkdir hidden dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "md", ".hidden-file"), []byte("hidden\n"), 0o644); err != nil {
+		t.Fatalf("write hidden file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "md", ".hidden-dir", "deep.txt"), []byte("deep\n"), 0o644); err != nil {
+		t.Fatalf("write hidden deep file: %v", err)
+	}
+
+	entries, err := BuildManifestEntries(repoRoot, []string{"md"})
+	if err != nil {
+		t.Fatalf("BuildManifestEntries() error = %v", err)
+	}
+
+	byPath := make(map[string]ManifestEntry, len(entries))
+	for _, e := range entries {
+		byPath[e.Path] = e
+	}
+
+	if byPath["md/.hidden-file"].Kind != ArtifactKindFile {
+		t.Fatalf("expected hidden file to be captured as file, got %#v", byPath["md/.hidden-file"])
+	}
+	if byPath["md/.hidden-dir"].Kind != ArtifactKindDir {
+		t.Fatalf("expected hidden dir to be captured as dir, got %#v", byPath["md/.hidden-dir"])
+	}
+	if byPath["md/.hidden-dir/deep.txt"].Kind != ArtifactKindFile {
+		t.Fatalf("expected file under hidden dir to be captured, got %#v", byPath["md/.hidden-dir/deep.txt"])
+	}
+}
+
 func createMixedFixture(t *testing.T, repoRoot string) {
 	t.Helper()
 
