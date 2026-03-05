@@ -96,7 +96,7 @@ func TestRunRestoreArgumentContract(t *testing.T) {
 	}
 }
 
-func TestRunRestoreCreatesOrphanBeforeDecisionPathExecutes(t *testing.T) {
+func TestRunRestoreCreatesOrphanBeforeApplyPathExecutes(t *testing.T) {
 	requireGit(t)
 
 	repoDir := createGitRepoWithArtifacts(t)
@@ -106,7 +106,7 @@ func TestRunRestoreCreatesOrphanBeforeDecisionPathExecutes(t *testing.T) {
 		Enabled:       true,
 		Artifacts:     []string{"md", "progress.md"},
 		StoreRoot:     storeRoot,
-		RestoreMode:   config.RestoreModePrompt,
+		RestoreMode:   config.RestoreModeForce,
 		MaxFileSizeMB: config.DefaultMaxFileSizeMB,
 	}
 	writeRepoConfig(t, repoDir, cfg)
@@ -157,7 +157,7 @@ func TestRunRestoreOrphanMetaIncludesTimestampAndTriggeringCheckoutSHA(t *testin
 		Enabled:       true,
 		Artifacts:     []string{"md", "progress.md"},
 		StoreRoot:     storeRoot,
-		RestoreMode:   config.RestoreModePrompt,
+		RestoreMode:   config.RestoreModeForce,
 		MaxFileSizeMB: config.DefaultMaxFileSizeMB,
 	}
 	writeRepoConfig(t, repoDir, cfg)
@@ -244,6 +244,9 @@ func TestRunRestorePromptShownOnlyInInteractiveContext(t *testing.T) {
 		t.Fatalf("runSnapshot() error = %v", err)
 	}
 	targetSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(repoDir, "progress.md"), []byte("mutated-for-prompt\n"), 0o644); err != nil {
+		t.Fatalf("mutate progress.md: %v", err)
+	}
 
 	origDecisionHook := beforeRestoreDecisionHook
 	beforeRestoreDecisionHook = func(restoreDecisionContext) error { return nil }
@@ -309,6 +312,9 @@ func TestRunRestoreDeclineExitsCleanlyWarnsAndDoesNotApply(t *testing.T) {
 		t.Fatalf("runSnapshot() error = %v", err)
 	}
 	targetSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(repoDir, "progress.md"), []byte("mutated-for-decline\n"), 0o644); err != nil {
+		t.Fatalf("mutate progress.md: %v", err)
+	}
 
 	beforeContent, err := os.ReadFile(filepath.Join(repoDir, "progress.md"))
 	if err != nil {
@@ -351,6 +357,9 @@ func TestRunRestoreDeclineExitsCleanlyWarnsAndDoesNotApply(t *testing.T) {
 	if string(afterContent) != string(beforeContent) {
 		t.Fatalf("declined restore should not modify artifacts")
 	}
+	if got := countUserOrphans(t, storeRoot, cfg.RepoID, "main"); got != 0 {
+		t.Fatalf("declined restore should not create orphan, got %d", got)
+	}
 }
 
 func TestRunRestoreAcceptProceedsToApplyRestorePlan(t *testing.T) {
@@ -373,6 +382,9 @@ func TestRunRestoreAcceptProceedsToApplyRestorePlan(t *testing.T) {
 		t.Fatalf("runSnapshot() error = %v", err)
 	}
 	targetSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(repoDir, "progress.md"), []byte("mutated-for-accept\n"), 0o644); err != nil {
+		t.Fatalf("mutate progress.md: %v", err)
+	}
 
 	origDecisionHook := beforeRestoreDecisionHook
 	beforeRestoreDecisionHook = func(restoreDecisionContext) error { return nil }
@@ -401,6 +413,9 @@ func TestRunRestoreAcceptProceedsToApplyRestorePlan(t *testing.T) {
 	if !applyCalled {
 		t.Fatalf("restore apply should run when user accepts prompt")
 	}
+	if got := countUserOrphans(t, storeRoot, cfg.RepoID, "main"); got != 1 {
+		t.Fatalf("accepted restore should create one orphan snapshot, got %d", got)
+	}
 }
 
 func TestRunRestoreNoTTYSkipsWithManualRecoveryHintAndNoFileChanges(t *testing.T) {
@@ -423,6 +438,9 @@ func TestRunRestoreNoTTYSkipsWithManualRecoveryHintAndNoFileChanges(t *testing.T
 		t.Fatalf("runSnapshot() error = %v", err)
 	}
 	targetSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(repoDir, "progress.md"), []byte("mutated-for-no-tty\n"), 0o644); err != nil {
+		t.Fatalf("mutate progress.md: %v", err)
+	}
 
 	beforeContent, err := os.ReadFile(filepath.Join(repoDir, "progress.md"))
 	if err != nil {
@@ -464,6 +482,9 @@ func TestRunRestoreNoTTYSkipsWithManualRecoveryHintAndNoFileChanges(t *testing.T
 	if string(afterContent) != string(beforeContent) {
 		t.Fatalf("no-tty restore skip should not modify artifacts")
 	}
+	if got := countUserOrphans(t, storeRoot, cfg.RepoID, "main"); got != 0 {
+		t.Fatalf("no-tty skip should not create orphan, got %d", got)
+	}
 }
 
 func TestRunRestoreForceAppliesWithoutPromptInInteractiveAndNonInteractiveModes(t *testing.T) {
@@ -489,6 +510,9 @@ func TestRunRestoreForceAppliesWithoutPromptInInteractiveAndNonInteractiveModes(
 				t.Fatalf("runSnapshot() error = %v", err)
 			}
 			targetSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+			if err := os.WriteFile(filepath.Join(repoDir, "progress.md"), []byte("mutated-force-mode\n"), 0o644); err != nil {
+				t.Fatalf("mutate progress.md: %v", err)
+			}
 
 			origDecisionHook := beforeRestoreDecisionHook
 			beforeRestoreDecisionHook = func(restoreDecisionContext) error { return nil }
@@ -532,6 +556,9 @@ func TestRunRestoreForceAppliesWithoutPromptInInteractiveAndNonInteractiveModes(
 			if !applyCalled {
 				t.Fatalf("force mode should apply restore without prompt")
 			}
+			if got := countUserOrphans(t, storeRoot, cfg.RepoID, "main"); got != 1 {
+				t.Fatalf("force mode restore should create one orphan snapshot, got %d", got)
+			}
 		})
 	}
 
@@ -563,6 +590,9 @@ func TestRunRestoreSkipModeExitsWithoutPromptOrApply(t *testing.T) {
 		t.Fatalf("runSnapshot() error = %v", err)
 	}
 	targetSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(repoDir, "progress.md"), []byte("mutated-for-skip-mode\n"), 0o644); err != nil {
+		t.Fatalf("mutate progress.md: %v", err)
+	}
 
 	origDecisionHook := beforeRestoreDecisionHook
 	beforeRestoreDecisionHook = func(restoreDecisionContext) error { return nil }
@@ -604,6 +634,9 @@ func TestRunRestoreSkipModeExitsWithoutPromptOrApply(t *testing.T) {
 	}
 	if stderr.String() != "" {
 		t.Fatalf("skip mode should exit silently, got stderr %q", stderr.String())
+	}
+	if got := countUserOrphans(t, storeRoot, cfg.RepoID, "main"); got != 0 {
+		t.Fatalf("skip mode should not create orphan, got %d", got)
 	}
 }
 
@@ -685,7 +718,7 @@ func TestRunRestoreOrphanAppliesOrphanSnapshot(t *testing.T) {
 	}
 }
 
-func TestRunRestoreAppliesFilesDirsSymlinksAndQuarantinesStalePaths(t *testing.T) {
+func TestRunRestoreAppliesFilesDirsSymlinksAndRemovesStalePaths(t *testing.T) {
 	requireGit(t)
 
 	repoDir := createGitRepoWithArtifacts(t)
@@ -767,43 +800,144 @@ func TestRunRestoreAppliesFilesDirsSymlinksAndQuarantinesStalePaths(t *testing.T
 	}
 
 	if _, err := os.Stat(filepath.Join(repoDir, "md", "stale.tmp")); !os.IsNotExist(err) {
-		t.Fatalf("expected stale path removed from repo after quarantine, stat err=%v", err)
+		t.Fatalf("expected stale path removed from repo, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(storeRoot, "repos", cfg.RepoID, "quarantine")); !os.IsNotExist(err) {
+		t.Fatalf("expected no quarantine directory to be created, stat err=%v", err)
+	}
+}
+
+func TestRunRestoreNoOpDoesNotCreateOrphan(t *testing.T) {
+	requireGit(t)
+
+	repoDir := createGitRepoWithArtifacts(t)
+	storeRoot := filepath.Join(t.TempDir(), "store")
+	cfg := config.Config{
+		RepoID:        "repo-restore-noop-orphan",
+		Enabled:       true,
+		Artifacts:     []string{"md", "progress.md"},
+		StoreRoot:     storeRoot,
+		RestoreMode:   config.RestoreModeForce,
+		MaxFileSizeMB: config.DefaultMaxFileSizeMB,
+	}
+	writeRepoConfig(t, repoDir, cfg)
+
+	if err := runSnapshot(repoDir, io.Discard); err != nil {
+		t.Fatalf("runSnapshot() error = %v", err)
+	}
+	targetSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+
+	applyCalled := false
+	origApplyHook := applyRestorePlanHook
+	applyRestorePlanHook = func(restoreApplyContext) error {
+		applyCalled = true
+		return nil
+	}
+	t.Cleanup(func() { applyRestorePlanHook = origApplyHook })
+
+	if err := runRestore(repoDir, []string{targetSHA}, io.Discard); err != nil {
+		t.Fatalf("runRestore() error = %v", err)
+	}
+	if applyCalled {
+		t.Fatalf("no-op restore must not apply restore plan")
+	}
+	if got := countUserOrphans(t, storeRoot, cfg.RepoID, "main"); got != 0 {
+		t.Fatalf("no-op restore should not create orphan, got %d", got)
+	}
+}
+
+func TestRunRestorePrunesOldOrphansToRetentionLimit(t *testing.T) {
+	requireGit(t)
+
+	repoDir := createGitRepoWithArtifacts(t)
+	storeRoot := filepath.Join(t.TempDir(), "store")
+	cfg := config.Config{
+		RepoID:        "repo-restore-orphan-retention",
+		Enabled:       true,
+		Artifacts:     []string{"md", "progress.md"},
+		StoreRoot:     storeRoot,
+		RestoreMode:   config.RestoreModeForce,
+		MaxFileSizeMB: config.DefaultMaxFileSizeMB,
+	}
+	writeRepoConfig(t, repoDir, cfg)
+
+	if err := runSnapshot(repoDir, io.Discard); err != nil {
+		t.Fatalf("runSnapshot() error = %v", err)
+	}
+	targetSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+
+	scopeDir := filepath.Join(storeRoot, "repos", cfg.RepoID, "worktrees", "main")
+	for i := 0; i < orphanRetentionMax+5; i++ {
+		orphanID := fmt.Sprintf("orphan-%02d", i)
+		createdAt := time.Date(2026, 3, 2, 10, 0, 0, 0, time.UTC).Add(time.Duration(i) * time.Minute)
+		if _, err := snapshots.PublishOrphanSnapshot(scopeDir, orphanID, nil, snapshots.Meta{
+			WorktreeID: "main",
+			CreatedAt:  createdAt.Format(time.RFC3339),
+		}); err != nil {
+			t.Fatalf("publish orphan snapshot %q: %v", orphanID, err)
+		}
+	}
+	if _, err := snapshots.PublishOrphanSnapshot(scopeDir, ".hidden-orphan", nil, snapshots.Meta{
+		WorktreeID: "main",
+		CreatedAt:  "2026-03-02T11:59:00Z",
+	}); err != nil {
+		t.Fatalf("publish hidden orphan snapshot: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(scopeDir, "orphans", ".tmp", "staging"), 0o755); err != nil {
+		t.Fatalf("create internal orphan staging dir: %v", err)
 	}
 
-	quarantineRoot := filepath.Join(storeRoot, "repos", cfg.RepoID, "quarantine")
-	entries, err := os.ReadDir(quarantineRoot)
+	if err := os.WriteFile(filepath.Join(repoDir, "progress.md"), []byte("mutate-for-prune\n"), 0o644); err != nil {
+		t.Fatalf("mutate progress.md: %v", err)
+	}
+
+	if err := runRestore(repoDir, []string{targetSHA}, io.Discard); err != nil {
+		t.Fatalf("runRestore() error = %v", err)
+	}
+
+	userOrphans := listUserOrphanIDs(t, storeRoot, cfg.RepoID, "main")
+	if len(userOrphans) != orphanRetentionMax {
+		t.Fatalf("expected %d retained user orphans, got %d (%v)", orphanRetentionMax, len(userOrphans), userOrphans)
+	}
+	if _, ok := userOrphans["orphan-00"]; ok {
+		t.Fatalf("expected oldest orphan to be pruned, got user orphans %v", userOrphans)
+	}
+	if _, ok := userOrphans["orphan-24"]; !ok {
+		t.Fatalf("expected newest pre-existing orphan to be retained, got user orphans %v", userOrphans)
+	}
+	if _, ok := userOrphans[".hidden-orphan"]; !ok {
+		t.Fatalf("expected hidden orphan id to be retained as a normal orphan, got user orphans %v", userOrphans)
+	}
+	if _, err := os.Stat(filepath.Join(scopeDir, "orphans", ".tmp", "staging")); err != nil {
+		t.Fatalf("expected internal .tmp staging directory to remain untouched, err=%v", err)
+	}
+}
+
+func countUserOrphans(t *testing.T, storeRoot, repoID, worktreeID string) int {
+	t.Helper()
+	return len(listUserOrphanIDs(t, storeRoot, repoID, worktreeID))
+}
+
+func listUserOrphanIDs(t *testing.T, storeRoot, repoID, worktreeID string) map[string]struct{} {
+	t.Helper()
+
+	orphansRoot := filepath.Join(storeRoot, "repos", repoID, "worktrees", worktreeID, "orphans")
+	entries, err := os.ReadDir(orphansRoot)
+	if os.IsNotExist(err) {
+		return map[string]struct{}{}
+	}
 	if err != nil {
-		t.Fatalf("read quarantine root: %v", err)
-	}
-	if len(entries) != 1 || !entries[0].IsDir() {
-		t.Fatalf("expected one quarantine session directory, got %#v", entries)
+		t.Fatalf("read orphans root: %v", err)
 	}
 
-	sessionDir := filepath.Join(quarantineRoot, entries[0].Name())
-	metaRaw, err := os.ReadFile(filepath.Join(sessionDir, "meta.json"))
-	if err != nil {
-		t.Fatalf("read quarantine meta.json: %v", err)
+	out := make(map[string]struct{})
+	for _, entry := range entries {
+		if !entry.IsDir() || snapshots.IsInternalCollectionDir(entry.Name()) {
+			continue
+		}
+		out[entry.Name()] = struct{}{}
 	}
-
-	var metaDoc map[string]any
-	if err := json.Unmarshal(metaRaw, &metaDoc); err != nil {
-		t.Fatalf("unmarshal quarantine meta.json: %v", err)
-	}
-
-	if metaDoc["repo_id"] != cfg.RepoID {
-		t.Fatalf("quarantine repo_id = %v, want %q", metaDoc["repo_id"], cfg.RepoID)
-	}
-	if metaDoc["target_snapshot_sha"] != targetSHA {
-		t.Fatalf("quarantine target_snapshot_sha = %v, want %q", metaDoc["target_snapshot_sha"], targetSHA)
-	}
-
-	quarantinedRaw, err := os.ReadFile(filepath.Join(sessionDir, "paths", "md", "stale.tmp"))
-	if err != nil {
-		t.Fatalf("read quarantined stale path: %v", err)
-	}
-	if string(quarantinedRaw) != "stale-data\n" {
-		t.Fatalf("quarantined stale file = %q, want %q", string(quarantinedRaw), "stale-data\n")
-	}
+	return out
 }
 
 type fakeTTY struct {

@@ -3,11 +3,14 @@ package commands
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -16,6 +19,7 @@ import (
 	"verti/internal/config"
 	"verti/internal/git"
 	"verti/internal/identity"
+	"verti/internal/logging"
 	"verti/internal/restoremode"
 	"verti/internal/restoreplan"
 	"verti/internal/snapshots"
@@ -23,6 +27,7 @@ import (
 
 const restoreOrphanFlag = "--orphan"
 const restoreSkippedOutOfSyncMessage = "verti: restore skipped. Code and artifacts are now out of sync."
+const orphanRetentionMax = 20
 
 type restoreDecision int
 
@@ -120,18 +125,30 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 			return err
 		}
 
-		currentPaths, err := currentPresentArtifactPaths(repoRoot, cfg.Artifacts)
+		currentEntries, err := currentArtifactManifestEntries(repoRoot, cfg.Artifacts)
 		if err != nil {
 			return err
 		}
+		currentPaths := presentArtifactPaths(currentEntries)
 		plan, err := restoreplan.BuildPlan(repoRoot, manifest.Entries, currentPaths)
 		if err != nil {
 			return fmt.Errorf("build restore plan: %w", err)
+		}
+		if !restoreWouldChangeState(manifest.Entries, currentEntries) {
+			return nil
 		}
 
 		targetLabel := "orphan:" + target
 		if strings.TrimSpace(meta.TriggeringCheckoutSHA) != "" {
 			targetLabel = meta.TriggeringCheckoutSHA
+		}
+
+		_, _, err = createPreRestoreOrphanSnapshot(repoRoot, scopeDir, storeRoot, cfg, worktreeID, targetLabel, stderr)
+		if err != nil {
+			return fmt.Errorf("create pre-restore orphan snapshot: %w", err)
+		}
+		if err := pruneOrphanSnapshots(scopeDir, orphanRetentionMax); err != nil {
+			logging.Warnf(stderr, "warning: unable to prune old orphan snapshots: %v", err)
 		}
 
 		if err := applyRestorePlanHook(restoreApplyContext{
@@ -166,27 +183,17 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 		if err != nil {
 			return err
 		}
-		currentPaths, err := currentPresentArtifactPaths(repoRoot, cfg.Artifacts)
+		currentEntries, err := currentArtifactManifestEntries(repoRoot, cfg.Artifacts)
 		if err != nil {
 			return err
 		}
+		currentPaths := presentArtifactPaths(currentEntries)
 		plan, err := restoreplan.BuildPlan(repoRoot, manifest.Entries, currentPaths)
 		if err != nil {
 			return fmt.Errorf("build restore plan: %w", err)
 		}
-
-		orphanID, orphanPath, err := createPreRestoreOrphanSnapshot(repoRoot, scopeDir, storeRoot, cfg, worktreeID, target, stderr)
-		if err != nil {
-			return fmt.Errorf("create pre-restore orphan snapshot: %w", err)
-		}
-
-		if err := beforeRestoreDecisionHook(restoreDecisionContext{
-			TargetSHA:    target,
-			OrphanID:     orphanID,
-			OrphanPath:   orphanPath,
-			SnapshotPath: snapshotPath,
-		}); err != nil {
-			return fmt.Errorf("run pre-decision restore hook: %w", err)
+		if !restoreWouldChangeState(manifest.Entries, currentEntries) {
+			return nil
 		}
 
 		restoreMode, err := resolveEffectiveRestoreMode(cfg.RestoreMode, stderr)
@@ -212,6 +219,23 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 				fmt.Fprintln(stderr, restoreSkippedOutOfSyncMessage)
 			}
 			return nil
+		}
+
+		orphanID, orphanPath, err := createPreRestoreOrphanSnapshot(repoRoot, scopeDir, storeRoot, cfg, worktreeID, target, stderr)
+		if err != nil {
+			return fmt.Errorf("create pre-restore orphan snapshot: %w", err)
+		}
+		if err := pruneOrphanSnapshots(scopeDir, orphanRetentionMax); err != nil {
+			logging.Warnf(stderr, "warning: unable to prune old orphan snapshots: %v", err)
+		}
+
+		if err := beforeRestoreDecisionHook(restoreDecisionContext{
+			TargetSHA:    target,
+			OrphanID:     orphanID,
+			OrphanPath:   orphanPath,
+			SnapshotPath: snapshotPath,
+		}); err != nil {
+			return fmt.Errorf("run pre-decision restore hook: %w", err)
 		}
 
 		if err := applyRestorePlanHook(restoreApplyContext{
@@ -301,19 +325,22 @@ func loadSnapshotMeta(snapshotPath string) (snapshots.Meta, error) {
 	return meta, nil
 }
 
-func currentPresentArtifactPaths(repoRoot string, configured []string) ([]string, error) {
+func currentArtifactManifestEntries(repoRoot string, configured []string) ([]artifacts.ManifestEntry, error) {
 	entries, err := artifacts.BuildManifestEntries(repoRoot, configured)
 	if err != nil {
-		return nil, fmt.Errorf("build current artifact manifest for restore planning: %w", err)
+		return nil, fmt.Errorf("build current artifact manifest for restore: %w", err)
 	}
+	return entries, nil
+}
 
+func presentArtifactPaths(entries []artifacts.ManifestEntry) []string {
 	out := make([]string, 0, len(entries))
 	for _, e := range entries {
 		if e.Status == artifacts.ArtifactStatusPresent {
 			out = append(out, e.Path)
 		}
 	}
-	return out, nil
+	return out
 }
 
 func createPreRestoreOrphanSnapshot(repoRoot, scopeDir, storeRoot string, cfg config.Config, worktreeID identity.WorktreeIdentity, targetSHA string, stderr io.Writer) (string, string, error) {
@@ -383,6 +410,123 @@ func promptRestoreConfirmation(tty io.ReadWriter, targetSHA, branch string) (boo
 
 	answer := strings.ToLower(strings.TrimSpace(response))
 	return answer == "y" || answer == "yes", nil
+}
+
+type orphanSnapshotInfo struct {
+	Name      string
+	Path      string
+	CreatedAt time.Time
+}
+
+func pruneOrphanSnapshots(scopeDir string, keep int) error {
+	if keep <= 0 {
+		return nil
+	}
+
+	orphansDir := filepath.Join(scopeDir, "orphans")
+	entries, err := os.ReadDir(orphansDir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read orphans directory %q: %w", orphansDir, err)
+	}
+
+	var infos []orphanSnapshotInfo
+	var errs error
+	for _, entry := range entries {
+		if !entry.IsDir() || snapshots.IsInternalCollectionDir(entry.Name()) {
+			continue
+		}
+
+		createdAt, err := orphanSnapshotCreatedAt(orphansDir, entry)
+		if err != nil {
+			errs = errors.Join(errs, fmt.Errorf("resolve orphan timestamp for %q: %w", entry.Name(), err))
+			continue
+		}
+
+		infos = append(infos, orphanSnapshotInfo{
+			Name:      entry.Name(),
+			Path:      filepath.Join(orphansDir, entry.Name()),
+			CreatedAt: createdAt,
+		})
+	}
+
+	sort.Slice(infos, func(i, j int) bool {
+		if !infos[i].CreatedAt.Equal(infos[j].CreatedAt) {
+			return infos[i].CreatedAt.After(infos[j].CreatedAt)
+		}
+		return infos[i].Name > infos[j].Name
+	})
+
+	for i := keep; i < len(infos); i++ {
+		if err := os.RemoveAll(infos[i].Path); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("remove orphan snapshot %q: %w", infos[i].Path, err))
+		}
+	}
+
+	return errs
+}
+
+func orphanSnapshotCreatedAt(orphansDir string, entry os.DirEntry) (time.Time, error) {
+	meta, err := loadSnapshotMeta(filepath.Join(orphansDir, entry.Name()))
+	if err == nil {
+		createdAt, parseErr := time.Parse(time.RFC3339, meta.CreatedAt)
+		if parseErr == nil {
+			return createdAt.UTC(), nil
+		}
+	}
+
+	info, err := entry.Info()
+	if err != nil {
+		return time.Time{}, err
+	}
+	return info.ModTime().UTC(), nil
+}
+
+func restoreWouldChangeState(targetEntries, currentEntries []artifacts.ManifestEntry) bool {
+	targetPresent := make(map[string]artifacts.ManifestEntry)
+	for _, entry := range targetEntries {
+		if entry.Status == artifacts.ArtifactStatusPresent {
+			targetPresent[entry.Path] = entry
+		}
+	}
+
+	currentPresent := make(map[string]artifacts.ManifestEntry)
+	for _, entry := range currentEntries {
+		if entry.Status == artifacts.ArtifactStatusPresent {
+			currentPresent[entry.Path] = entry
+		}
+	}
+
+	if len(targetPresent) != len(currentPresent) {
+		return true
+	}
+
+	for path, target := range targetPresent {
+		current, ok := currentPresent[path]
+		if !ok {
+			return true
+		}
+		if target.Kind != current.Kind {
+			return true
+		}
+
+		switch target.Kind {
+		case artifacts.ArtifactKindFile:
+			if target.Hash != current.Hash || target.Mode != current.Mode {
+				return true
+			}
+		case artifacts.ArtifactKindSymlink:
+			if target.LinkTarget != current.LinkTarget {
+				return true
+			}
+		default:
+			// directory presence is sufficient for no-op detection.
+		}
+	}
+
+	return false
 }
 
 func resolveEffectiveRestoreMode(configMode string, warnings io.Writer) (string, error) {

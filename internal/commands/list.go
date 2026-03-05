@@ -90,7 +90,7 @@ func loadListRows(snapshotsDir, orphansDir string, includeOrphans bool) ([]listR
 		if !entry.IsDir() {
 			continue
 		}
-		if isInternalCollectionDir(entry.Name()) {
+		if snapshots.IsInternalCollectionDir(entry.Name()) {
 			continue
 		}
 
@@ -133,7 +133,7 @@ func loadListRows(snapshotsDir, orphansDir string, includeOrphans bool) ([]listR
 			if !entry.IsDir() {
 				continue
 			}
-			if isInternalCollectionDir(entry.Name()) {
+			if snapshots.IsInternalCollectionDir(entry.Name()) {
 				continue
 			}
 
@@ -180,11 +180,6 @@ func loadListRows(snapshotsDir, orphansDir string, includeOrphans bool) ([]listR
 	})
 
 	return rows, nil
-}
-
-func isInternalCollectionDir(name string) bool {
-	// .tmp is publish staging for snapshots/orphans, not a user-facing entry.
-	return name == ".tmp"
 }
 
 func readSnapshotMetaForList(snapshotDir string) (snapshots.Meta, error) {

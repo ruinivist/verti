@@ -70,10 +70,6 @@ func runSnapshot(workingDir string, stderr io.Writer) error {
 		return fmt.Errorf("resolve worktree identity: %w", err)
 	}
 
-	if err := cleanupExpiredQuarantineSessions(storeRoot, cfg.RepoID, nowUTC()); err != nil {
-		logging.Warnf(stderr, "warning: unable to clean expired quarantine sessions: %v", err)
-	}
-
 	scopeDir := filepath.Join(storeRoot, "repos", cfg.RepoID, "worktrees", worktreeID.WorktreeID)
 	meta := snapshots.Meta{
 		CommitSHA:               headSHA,
@@ -83,10 +79,6 @@ func runSnapshot(workingDir string, stderr io.Writer) error {
 	}
 	if _, err := snapshots.PublishSnapshot(scopeDir, headSHA, manifestEntries, meta); err != nil {
 		return fmt.Errorf("publish snapshot: %w", err)
-	}
-
-	if err := cleanupWorktreeQuarantineSessions(storeRoot, cfg.RepoID, worktreeID.WorktreeID); err != nil {
-		logging.Warnf(stderr, "warning: unable to clean worktree quarantine sessions: %v", err)
 	}
 
 	return nil

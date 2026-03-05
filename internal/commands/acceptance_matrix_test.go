@@ -101,7 +101,7 @@ func TestMVPAcceptanceMatrixAC1ToAC9(t *testing.T) {
 		}
 	})
 
-	t.Run("AC4_prompt_decline_no_changes_and_orphan_recorded", func(t *testing.T) {
+	t.Run("AC4_prompt_decline_no_changes_and_no_orphan_created", func(t *testing.T) {
 		repoDir := createGitRepoWithArtifacts(t)
 		storeRoot := filepath.Join(t.TempDir(), "store")
 		cfg := config.Config{
@@ -139,8 +139,18 @@ func TestMVPAcceptanceMatrixAC1ToAC9(t *testing.T) {
 
 		orphansDir := filepath.Join(storeRoot, "repos", cfg.RepoID, "worktrees", "main", "orphans")
 		dirEntries, err := os.ReadDir(orphansDir)
-		if err != nil || len(dirEntries) == 0 {
-			t.Fatalf("expected orphan snapshot to be recorded before prompt, err=%v entries=%d", err, len(dirEntries))
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatalf("read orphans root: %v", err)
+		}
+
+		visibleCount := 0
+		for _, entry := range dirEntries {
+			if entry.IsDir() && !snapshots.IsInternalCollectionDir(entry.Name()) {
+				visibleCount++
+			}
+		}
+		if visibleCount != 0 {
+			t.Fatalf("declined restore should not create user orphan snapshots, found %d", visibleCount)
 		}
 	})
 
@@ -240,6 +250,9 @@ func TestMVPAcceptanceMatrixAC1ToAC9(t *testing.T) {
 			t.Fatalf("runSnapshot() error = %v", err)
 		}
 		sha := runGit(t, repoDir, "rev-parse", "HEAD")
+		if err := os.WriteFile(filepath.Join(repoDir, "progress.md"), []byte("ac7-local-change\n"), 0o644); err != nil {
+			t.Fatalf("mutate progress.md: %v", err)
+		}
 
 		origOpenTTY := openPromptTTY
 		openPromptTTY = func() (io.ReadWriteCloser, error) { return nil, os.ErrNotExist }

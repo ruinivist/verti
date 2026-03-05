@@ -61,7 +61,7 @@ func PublishOrphanSnapshot(scopeDir, orphanID string, entries []artifacts.Manife
 
 func publish(scopeDir, collectionDir, id string, entries []artifacts.ManifestEntry, meta Meta) (string, error) {
 	publishRoot := filepath.Join(scopeDir, collectionDir)
-	tmpRoot := filepath.Join(publishRoot, ".tmp")
+	tmpRoot := filepath.Join(publishRoot, internalCollectionTmpDir)
 	targetDir := filepath.Join(publishRoot, id)
 
 	if err := os.MkdirAll(tmpRoot, 0o755); err != nil {

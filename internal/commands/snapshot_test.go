@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"verti/internal/config"
 )
@@ -230,70 +229,6 @@ func TestRunSnapshotStoresFilesBelowMaxFileSizeNormally(t *testing.T) {
 	}
 }
 
-func TestRunSnapshotSuccessCleansQuarantineForSameWorktree(t *testing.T) {
-	requireGit(t)
-
-	repoDir := createGitRepoWithArtifacts(t)
-	storeRoot := filepath.Join(t.TempDir(), "store")
-	cfg := config.Config{
-		RepoID:        "repo-quarantine-same-worktree",
-		Enabled:       true,
-		Artifacts:     []string{"md", "progress.md"},
-		StoreRoot:     storeRoot,
-		RestoreMode:   config.RestoreModePrompt,
-		MaxFileSizeMB: config.DefaultMaxFileSizeMB,
-	}
-	writeRepoConfig(t, repoDir, cfg)
-
-	now := time.Now().UTC()
-	sameWorktreeSession := createQuarantineSession(t, storeRoot, cfg.RepoID, "main", now.Add(-2*time.Hour), "recent-same-worktree")
-	otherWorktreeSession := createQuarantineSession(t, storeRoot, cfg.RepoID, "other", now.Add(-2*time.Hour), "recent-other-worktree")
-
-	var stderr bytes.Buffer
-	if err := runSnapshot(repoDir, &stderr); err != nil {
-		t.Fatalf("runSnapshot() error = %v", err)
-	}
-
-	if _, err := os.Stat(sameWorktreeSession); !os.IsNotExist(err) {
-		t.Fatalf("expected same-worktree quarantine session to be deleted after successful snapshot, stat err=%v", err)
-	}
-	if _, err := os.Stat(otherWorktreeSession); err != nil {
-		t.Fatalf("expected other-worktree quarantine session to remain, stat err=%v", err)
-	}
-}
-
-func TestRunSnapshotCleansExpiredQuarantineSessions(t *testing.T) {
-	requireGit(t)
-
-	repoDir := createGitRepoWithArtifacts(t)
-	storeRoot := filepath.Join(t.TempDir(), "store")
-	cfg := config.Config{
-		RepoID:        "repo-quarantine-expiry",
-		Enabled:       true,
-		Artifacts:     []string{"md", "progress.md"},
-		StoreRoot:     storeRoot,
-		RestoreMode:   config.RestoreModePrompt,
-		MaxFileSizeMB: config.DefaultMaxFileSizeMB,
-	}
-	writeRepoConfig(t, repoDir, cfg)
-
-	now := time.Now().UTC()
-	expiredSession := createQuarantineSession(t, storeRoot, cfg.RepoID, "other", now.Add(-(7*24*time.Hour)-time.Hour), "expired-other-worktree")
-	freshSession := createQuarantineSession(t, storeRoot, cfg.RepoID, "other", now.Add(-24*time.Hour), "fresh-other-worktree")
-
-	var stderr bytes.Buffer
-	if err := runSnapshot(repoDir, &stderr); err != nil {
-		t.Fatalf("runSnapshot() error = %v", err)
-	}
-
-	if _, err := os.Stat(expiredSession); !os.IsNotExist(err) {
-		t.Fatalf("expected expired quarantine session to be deleted, stat err=%v", err)
-	}
-	if _, err := os.Stat(freshSession); err != nil {
-		t.Fatalf("expected fresh quarantine session to remain, stat err=%v", err)
-	}
-}
-
 func createGitRepoWithArtifacts(t *testing.T) string {
 	t.Helper()
 
@@ -356,36 +291,4 @@ func readManifestEntries(t *testing.T, manifestPath string) map[string]struct {
 		byPath[e.Path] = e
 	}
 	return byPath
-}
-
-func createQuarantineSession(t *testing.T, storeRoot, repoID, worktreeID string, createdAt time.Time, sessionID string) string {
-	t.Helper()
-
-	sessionDir := filepath.Join(storeRoot, "repos", repoID, "quarantine", sessionID)
-	if err := os.MkdirAll(filepath.Join(sessionDir, "paths"), 0o755); err != nil {
-		t.Fatalf("create quarantine session dir: %v", err)
-	}
-
-	meta := map[string]any{
-		"schema_version":      1,
-		"created_at":          createdAt.Format(time.RFC3339),
-		"repo_id":             repoID,
-		"worktree_id":         worktreeID,
-		"target_snapshot_sha": "target-sha",
-		"moved_paths":         []string{"md/stale.tmp"},
-	}
-	raw, err := json.MarshalIndent(meta, "", "  ")
-	if err != nil {
-		t.Fatalf("marshal quarantine meta: %v", err)
-	}
-	raw = append(raw, '\n')
-
-	if err := os.WriteFile(filepath.Join(sessionDir, "meta.json"), raw, 0o644); err != nil {
-		t.Fatalf("write quarantine meta.json: %v", err)
-	}
-
-	if err := os.WriteFile(filepath.Join(sessionDir, "paths", "marker.txt"), []byte("marker\n"), 0o644); err != nil {
-		t.Fatalf("write quarantine marker file: %v", err)
-	}
-	return sessionDir
 }
