@@ -20,12 +20,16 @@ var (
 // WriteObject stores data at <objectsDir>/<sha256>, using temp-file + fsync + atomic rename.
 // If the object already exists, it is reused without rewriting.
 func WriteObject(objectsDir string, data []byte) (string, error) {
+	// fsync is for os level buffering, this is to flush writes basically
+	// so they are durable once said to be done
+	// the kernel syscall is fsync
 	hash := sha256Hex(data)
 	objectPath := filepath.Join(objectsDir, hash)
 
 	if _, err := os.Stat(objectPath); err == nil {
 		return hash, nil
 	} else if !os.IsNotExist(err) {
+		// if state failed for any reason that is non existent file, fail fast
 		return "", fmt.Errorf("stat object %q: %w", objectPath, err)
 	}
 

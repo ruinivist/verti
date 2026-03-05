@@ -16,6 +16,7 @@ type quarantineMeta struct {
 	WorktreeID string `json:"worktree_id"`
 }
 
+// too old sessions
 func cleanupExpiredQuarantineSessions(storeRoot, repoID string, now time.Time) error {
 	return cleanupQuarantineSessions(storeRoot, repoID, func(_ string, meta quarantineMeta) (bool, error) {
 		if meta.CreatedAt == "" {
@@ -32,6 +33,9 @@ func cleanupExpiredQuarantineSessions(storeRoot, repoID string, now time.Time) e
 	})
 }
 
+// clear up the curreent uncommited stuff once something is commited
+// this is to handled cases where you discard stuff but if you end up commiting
+// after discarding, discard fast
 func cleanupWorktreeQuarantineSessions(storeRoot, repoID, worktreeID string) error {
 	return cleanupQuarantineSessions(storeRoot, repoID, func(_ string, meta quarantineMeta) (bool, error) {
 		return meta.WorktreeID == worktreeID, nil

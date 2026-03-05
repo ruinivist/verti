@@ -1,3 +1,10 @@
+/**
+This file primarily deals with validating the list of artifact paths.
+Absolute or outside of repo is invalid and fails fast.
+For the valid ones, it build an sbolute path and checks if they
+actually exist - define missing or present status.
+*/
+
 package artifacts
 
 import (

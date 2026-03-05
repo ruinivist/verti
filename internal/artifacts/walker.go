@@ -45,7 +45,7 @@ func BuildManifestEntriesFromNormalized(normalized []ConfiguredPath) ([]Manifest
 	for _, cfg := range normalized {
 		if cfg.Status == ArtifactStatusMissing {
 			entriesByPath[toSlashPath(cfg.Path)] = ManifestEntry{
-				Path:   toSlashPath(cfg.Path),
+				Path:   toSlashPath(cfg.Path), // to make the paths os independent
 				Kind:   ArtifactKindMissing,
 				Status: ArtifactStatusMissing,
 			}
@@ -57,6 +57,8 @@ func BuildManifestEntriesFromNormalized(normalized []ConfiguredPath) ([]Manifest
 			return nil, fmt.Errorf("stat artifact %q: %w", cfg.Path, err)
 		}
 
+		// recursive walk if the root level entry is a dir, all is resolved ultimately
+		// to individual files
 		if info.Mode().IsDir() {
 			if err := walkDirectory(cfg, entriesByPath); err != nil {
 				return nil, err
@@ -75,6 +77,8 @@ func BuildManifestEntriesFromNormalized(normalized []ConfiguredPath) ([]Manifest
 	for _, e := range entriesByPath {
 		entries = append(entries, e)
 	}
+
+	// sort is only to make it deterministic for stable testing
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].Path < entries[j].Path
 	})
@@ -82,6 +86,7 @@ func BuildManifestEntriesFromNormalized(normalized []ConfiguredPath) ([]Manifest
 }
 
 func walkDirectory(cfg ConfiguredPath, entries map[string]ManifestEntry) error {
+	// go: maps are effectively always pass by reference ( pass by value for the "header" of map )
 	err := filepath.WalkDir(cfg.AbsPath, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -122,6 +127,12 @@ func manifestEntryForPath(relativePath, absPath string) (ManifestEntry, error) {
 		Status: ArtifactStatusPresent,
 	}
 
+	// file handling: stored in full
+	// symlink handling: only the symlink itself is restored, not the actual
+	// file contents ( this is the current behavior decision basically )
+
+	// directory entrires are only stored in manifest to recreate paths
+	// storage is for files only as blobs
 	switch {
 	case info.Mode().IsRegular():
 		entry.Kind = ArtifactKindFile
@@ -133,6 +144,8 @@ func manifestEntryForPath(relativePath, absPath string) (ManifestEntry, error) {
 		}
 		entry.Hash = hash
 	case info.Mode().IsDir():
+		// directory entrires are only stored in manifest to recreate paths
+		// storage is for files only as blobs
 		entry.Kind = ArtifactKindDir
 	case info.Mode()&os.ModeSymlink != 0:
 		entry.Kind = ArtifactKindSymlink

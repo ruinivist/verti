@@ -26,6 +26,9 @@ func ResolveWorktreeIdentity(workingDir string) (WorktreeIdentity, error) {
 	}
 
 	worktreeID := filepath.Base(gitDir)
+
+	// TODO: this is a bug as I cannot have a worktree called as "main" as that would
+	// collide with base repo
 	if filepath.Clean(gitDir) == filepath.Clean(commonGitDir) {
 		worktreeID = "main"
 	}
@@ -55,6 +58,7 @@ func PathFingerprint(path string) (string, error) {
 		return "", fmt.Errorf("resolve absolute path for %q: %w", path, err)
 	}
 
+	// if it's a symlink, resolve
 	canonicalPath, err := filepath.EvalSymlinks(absPath)
 	if err != nil {
 		// Fall back to absolute path if symlink eval is unavailable; this still keeps deterministic behavior.

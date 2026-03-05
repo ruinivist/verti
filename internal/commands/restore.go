@@ -70,6 +70,9 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+
+	// TODO: this repeated loading of all meta related stuff can be refactored into a separate type
+	// as this is duplicated in several places
 	repoRoot, err := git.RepoRoot(workingDir)
 	if err != nil {
 		return fmt.Errorf("resolve repo root: %w", err)
@@ -232,6 +235,7 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 	}
 }
 
+// returns what id to restore, orphan or snapshot kind of restore
 func parseRestoreArgs(args []string) (target string, targetKind string, err error) {
 	if len(args) == 0 {
 		return "", "", &cli.UsageError{Message: "restore requires a target SHA argument or --orphan <id>"}

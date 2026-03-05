@@ -84,6 +84,7 @@ func runSnapshot(workingDir string, stderr io.Writer) error {
 	if _, err := snapshots.PublishSnapshot(scopeDir, headSHA, manifestEntries, meta); err != nil {
 		return fmt.Errorf("publish snapshot: %w", err)
 	}
+
 	if err := cleanupWorktreeQuarantineSessions(storeRoot, cfg.RepoID, worktreeID.WorktreeID); err != nil {
 		logging.Warnf(stderr, "warning: unable to clean worktree quarantine sessions: %v", err)
 	}
@@ -91,6 +92,8 @@ func runSnapshot(workingDir string, stderr io.Writer) error {
 	return nil
 }
 
+// resolves to abolute path of store from config, handling is basically for
+// relative paths beginning with ~
 func expandStoreRoot(storeRoot string) (string, error) {
 	if strings.HasPrefix(storeRoot, "~"+string(filepath.Separator)) {
 		home, err := os.UserHomeDir()
