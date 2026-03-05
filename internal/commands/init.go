@@ -32,16 +32,15 @@ func runInit(workingDir, vertiBinPath string) error {
 		return fmt.Errorf("verti init must be run inside a git worktree: %w", err)
 	}
 
-	commonGitDir, err := git.CommonGitDir(workingDir)
+	ctx, err := LoadContext(workingDir, []ContextField{
+		ContextFieldConfig,
+	})
 	if err != nil {
-		return fmt.Errorf("resolve common git dir: %w", err)
+		return err
 	}
 
-	configPath := filepath.Join(commonGitDir, "verti.toml")
-	cfg, err := config.Load(configPath)
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
+	configPath := ctx.Config.Path
+	cfg := ctx.Config.Value
 
 	if cfg.RepoID == "" {
 		cfg.RepoID = uuid.NewString()

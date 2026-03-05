@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"verti/internal/cli"
-	"verti/internal/identity"
 	"verti/internal/snapshots"
 )
 
@@ -35,29 +34,21 @@ func runList(workingDir string, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	cfg, err := loadRepoConfig(workingDir)
+	ctx, err := LoadContext(workingDir, []ContextField{
+		ContextFieldConfig,
+		ContextFieldStoreRoot,
+		ContextFieldWorktreeIdentity,
+		ContextFieldStorePaths,
+	})
 	if err != nil {
 		return err
 	}
+	cfg := ctx.Config.Value
 	if !cfg.Enabled {
 		return nil
 	}
-	if cfg.RepoID == "" {
-		return fmt.Errorf("config missing repo_id; run `verti init`")
-	}
 
-	storeRoot, err := expandStoreRoot(cfg.StoreRoot)
-	if err != nil {
-		return err
-	}
-
-	worktreeID, err := identity.ResolveWorktreeIdentity(workingDir)
-	if err != nil {
-		return fmt.Errorf("resolve worktree identity: %w", err)
-	}
-
-	worktreeRoot := filepath.Join(storeRoot, "repos", cfg.RepoID, "worktrees", worktreeID.WorktreeID)
-	rows, err := loadListRows(filepath.Join(worktreeRoot, "snapshots"), filepath.Join(worktreeRoot, "orphans"), includeOrphans)
+	rows, err := loadListRows(ctx.Paths.SnapshotsDir, ctx.Paths.OrphansDir, includeOrphans)
 	if err != nil {
 		return err
 	}

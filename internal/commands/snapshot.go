@@ -5,12 +5,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"verti/internal/artifacts"
-	"verti/internal/config"
 	"verti/internal/git"
-	"verti/internal/identity"
 	"verti/internal/logging"
 	"verti/internal/snapshots"
 	"verti/internal/store"
@@ -24,14 +21,21 @@ func RunSnapshot(workingDir string) error {
 }
 
 func runSnapshot(workingDir string, stderr io.Writer) error {
-	repoRoot, err := git.RepoRoot(workingDir)
+	ctx, err := LoadContext(workingDir, []ContextField{
+		ContextFieldRepoRoot,
+		ContextFieldConfig,
+		ContextFieldStoreRoot,
+		ContextFieldWorktreeIdentity,
+		ContextFieldStorePaths,
+	})
 	if err != nil {
-		return fmt.Errorf("resolve repo root: %w", err)
+		return err
 	}
-	commonGitDir, err := git.CommonGitDir(workingDir)
-	if err != nil {
-		return fmt.Errorf("resolve common git dir: %w", err)
+	cfg := ctx.Config.Value
+	if !cfg.Enabled {
+		return nil
 	}
+
 	headSHA, err := git.HeadSHA(workingDir)
 	if err != nil {
 		return fmt.Errorf("resolve HEAD sha: %w", err)
@@ -41,36 +45,18 @@ func runSnapshot(workingDir string, stderr io.Writer) error {
 		return fmt.Errorf("resolve current branch: %w", err)
 	}
 
-	cfgPath := filepath.Join(commonGitDir, "verti.toml")
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-	if !cfg.Enabled {
-		return nil
-	}
-	if cfg.RepoID == "" {
-		return fmt.Errorf("config %q missing repo_id; run `verti init`", cfgPath)
-	}
-
+	repoRoot := ctx.Git.RepoRoot
 	manifestEntries, err := artifacts.BuildManifestEntries(repoRoot, cfg.Artifacts)
 	if err != nil {
 		return fmt.Errorf("build artifact manifest entries: %w", err)
 	}
 
-	storeRoot, err := expandStoreRoot(cfg.StoreRoot)
-	if err != nil {
-		return err
-	}
+	storeRoot := ctx.Store.Root
 
 	writeManifestObjects(repoRoot, storeRoot, cfg.RepoID, cfg.MaxFileSizeMB, manifestEntries, stderr)
 
-	worktreeID, err := identity.ResolveWorktreeIdentity(workingDir)
-	if err != nil {
-		return fmt.Errorf("resolve worktree identity: %w", err)
-	}
-
-	scopeDir := filepath.Join(storeRoot, "repos", cfg.RepoID, "worktrees", worktreeID.WorktreeID)
+	worktreeID := *ctx.Worktree
+	scopeDir := ctx.Paths.WorktreeScopeDir
 	meta := snapshots.Meta{
 		CommitSHA:               headSHA,
 		Branch:                  branch,
@@ -82,33 +68,6 @@ func runSnapshot(workingDir string, stderr io.Writer) error {
 	}
 
 	return nil
-}
-
-// resolves to abolute path of store from config, handling is basically for
-// relative paths beginning with ~
-func expandStoreRoot(storeRoot string) (string, error) {
-	if strings.HasPrefix(storeRoot, "~"+string(filepath.Separator)) {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("resolve user home for store_root %q: %w", storeRoot, err)
-		}
-		return filepath.Join(home, strings.TrimPrefix(storeRoot, "~"+string(filepath.Separator))), nil
-	}
-	if storeRoot == "~" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("resolve user home for store_root %q: %w", storeRoot, err)
-		}
-		return home, nil
-	}
-	if filepath.IsAbs(storeRoot) {
-		return storeRoot, nil
-	}
-	abs, err := filepath.Abs(storeRoot)
-	if err != nil {
-		return "", fmt.Errorf("resolve absolute store_root %q: %w", storeRoot, err)
-	}
-	return abs, nil
 }
 
 func writeManifestObjects(repoRoot, storeRoot, repoID string, maxFileSizeMB int, entries []artifacts.ManifestEntry, stderr io.Writer) {

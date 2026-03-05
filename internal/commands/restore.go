@@ -17,7 +17,6 @@ import (
 	"verti/internal/artifacts"
 	"verti/internal/cli"
 	"verti/internal/config"
-	"verti/internal/git"
 	"verti/internal/identity"
 	"verti/internal/logging"
 	"verti/internal/restoremode"
@@ -76,35 +75,24 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 		return err
 	}
 
-	// TODO: this repeated loading of all meta related stuff can be refactored into a separate type
-	// as this is duplicated in several places
-	repoRoot, err := git.RepoRoot(workingDir)
-	if err != nil {
-		return fmt.Errorf("resolve repo root: %w", err)
-	}
-
-	cfg, err := loadRepoConfig(workingDir)
+	ctx, err := LoadContext(workingDir, []ContextField{
+		ContextFieldRepoRoot,
+		ContextFieldConfig,
+		ContextFieldStoreRoot,
+		ContextFieldWorktreeIdentity,
+		ContextFieldStorePaths,
+	})
 	if err != nil {
 		return err
 	}
+	cfg := ctx.Config.Value
 	if !cfg.Enabled {
 		return nil
 	}
-	if cfg.RepoID == "" {
-		return fmt.Errorf("config missing repo_id; run `verti init`")
-	}
-
-	storeRoot, err := expandStoreRoot(cfg.StoreRoot)
-	if err != nil {
-		return err
-	}
-
-	worktreeID, err := identity.ResolveWorktreeIdentity(workingDir)
-	if err != nil {
-		return fmt.Errorf("resolve worktree identity: %w", err)
-	}
-
-	scopeDir := filepath.Join(storeRoot, "repos", cfg.RepoID, "worktrees", worktreeID.WorktreeID)
+	repoRoot := ctx.Git.RepoRoot
+	storeRoot := ctx.Store.Root
+	worktreeID := *ctx.Worktree
+	scopeDir := ctx.Paths.WorktreeScopeDir
 
 	switch targetKind {
 	case "orphan":
@@ -229,6 +217,7 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 			logging.Warnf(stderr, "warning: unable to prune old orphan snapshots: %v", err)
 		}
 
+		// this is just a testing seam
 		if err := beforeRestoreDecisionHook(restoreDecisionContext{
 			TargetSHA:    target,
 			OrphanID:     orphanID,
@@ -280,21 +269,6 @@ func parseRestoreArgs(args []string) (target string, targetKind string, err erro
 	}
 
 	return args[0], "snapshot", nil
-}
-
-func loadRepoConfig(workingDir string) (config.Config, error) {
-	commonGitDir, err := git.CommonGitDir(workingDir)
-	if err != nil {
-		return config.Config{}, fmt.Errorf("resolve common git dir: %w", err)
-	}
-
-	cfgPath := filepath.Join(commonGitDir, "verti.toml")
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return config.Config{}, fmt.Errorf("load config: %w", err)
-	}
-
-	return cfg, nil
 }
 
 func loadSnapshotManifest(snapshotPath string) (snapshots.Manifest, error) {
