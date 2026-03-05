@@ -16,7 +16,6 @@ import (
 	"verti/internal/config"
 	"verti/internal/git"
 	"verti/internal/identity"
-	"verti/internal/reporting"
 	"verti/internal/restoremode"
 	"verti/internal/restoreplan"
 	"verti/internal/snapshots"
@@ -124,7 +123,7 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 		}
 		plan, err := restoreplan.BuildPlan(repoRoot, manifest.Entries, currentPaths)
 		if err != nil {
-			return reporting.Wrap(reporting.ClassRestore, "build restore plan", err)
+			return fmt.Errorf("build restore plan: %w", err)
 		}
 
 		targetLabel := "orphan:" + target
@@ -144,7 +143,7 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 			RepoID:       cfg.RepoID,
 			WorktreeID:   worktreeID.WorktreeID,
 		}); err != nil {
-			return reporting.Wrap(reporting.ClassRestore, "apply restore plan", err)
+			return fmt.Errorf("apply restore plan: %w", err)
 		}
 		return nil
 	case "snapshot":
@@ -170,7 +169,7 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 		}
 		plan, err := restoreplan.BuildPlan(repoRoot, manifest.Entries, currentPaths)
 		if err != nil {
-			return reporting.Wrap(reporting.ClassRestore, "build restore plan", err)
+			return fmt.Errorf("build restore plan: %w", err)
 		}
 
 		orphanID, orphanPath, err := createPreRestoreOrphanSnapshot(repoRoot, scopeDir, storeRoot, cfg, worktreeID, target, stderr)
@@ -200,11 +199,15 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 			return nil
 		}
 		if decision == restoreDecisionNoTTY {
-			warnf(stderr, "verti: no interactive TTY; skipping restore. To apply manually, run: verti restore %s", target)
+			if stderr != nil {
+				fmt.Fprintf(stderr, "verti: no interactive TTY; skipping restore. To apply manually, run: verti restore %s\n", target)
+			}
 			return nil
 		}
 		if decision == restoreDecisionDeclined {
-			warnf(stderr, restoreSkippedOutOfSyncMessage)
+			if stderr != nil {
+				fmt.Fprintln(stderr, restoreSkippedOutOfSyncMessage)
+			}
 			return nil
 		}
 
@@ -220,7 +223,7 @@ func runRestore(workingDir string, args []string, stderr io.Writer) error {
 			RepoID:       cfg.RepoID,
 			WorktreeID:   worktreeID.WorktreeID,
 		}); err != nil {
-			return reporting.Wrap(reporting.ClassRestore, "apply restore plan", err)
+			return fmt.Errorf("apply restore plan: %w", err)
 		}
 
 		return nil
@@ -260,7 +263,7 @@ func loadRepoConfig(workingDir string) (config.Config, error) {
 	cfgPath := filepath.Join(commonGitDir, "verti.toml")
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		return config.Config{}, reporting.Wrap(reporting.ClassConfig, "load config", err)
+		return config.Config{}, fmt.Errorf("load config: %w", err)
 	}
 
 	return cfg, nil

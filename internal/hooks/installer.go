@@ -35,6 +35,9 @@ func InstallHookDispatcher(hookPath, hookName, vertiBinPath string) (InstallResu
 		return InstallResult{NoOp: true}, nil
 	}
 
+	// the default path is .0 based even if nothing exists
+	// the hooks written has a guard for it
+	// if it's written then we get a new path
 	legacyHookPath := backupSlotPath(hookPath, 0)
 	if currentHook.exists {
 		legacyHookPath, err = ensureBackupSlot(hookPath, currentHook.data, currentHook.info.Mode().Perm())

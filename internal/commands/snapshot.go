@@ -11,7 +11,7 @@ import (
 	"verti/internal/config"
 	"verti/internal/git"
 	"verti/internal/identity"
-	"verti/internal/reporting"
+	"verti/internal/logging"
 	"verti/internal/snapshots"
 	"verti/internal/store"
 )
@@ -44,7 +44,7 @@ func runSnapshot(workingDir string, stderr io.Writer) error {
 	cfgPath := filepath.Join(commonGitDir, "verti.toml")
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		return reporting.Wrap(reporting.ClassConfig, "load config", err)
+		return fmt.Errorf("load config: %w", err)
 	}
 	if !cfg.Enabled {
 		return nil
@@ -71,7 +71,7 @@ func runSnapshot(workingDir string, stderr io.Writer) error {
 	}
 
 	if err := cleanupExpiredQuarantineSessions(storeRoot, cfg.RepoID, nowUTC()); err != nil {
-		warnf(stderr, "warning: unable to clean expired quarantine sessions: %v", err)
+		logging.Warnf(stderr, "warning: unable to clean expired quarantine sessions: %v", err)
 	}
 
 	scopeDir := filepath.Join(storeRoot, "repos", cfg.RepoID, "worktrees", worktreeID.WorktreeID)
@@ -82,20 +82,13 @@ func runSnapshot(workingDir string, stderr io.Writer) error {
 		WorktreePathFingerprint: worktreeID.WorktreePathFingerprint,
 	}
 	if _, err := snapshots.PublishSnapshot(scopeDir, headSHA, manifestEntries, meta); err != nil {
-		return reporting.Wrap(reporting.ClassStore, "publish snapshot", err)
+		return fmt.Errorf("publish snapshot: %w", err)
 	}
 	if err := cleanupWorktreeQuarantineSessions(storeRoot, cfg.RepoID, worktreeID.WorktreeID); err != nil {
-		warnf(stderr, "warning: unable to clean worktree quarantine sessions: %v", err)
+		logging.Warnf(stderr, "warning: unable to clean worktree quarantine sessions: %v", err)
 	}
 
 	return nil
-}
-
-func warnf(w io.Writer, format string, args ...any) {
-	if w == nil {
-		return
-	}
-	fmt.Fprintf(w, format+"\n", args...)
 }
 
 func expandStoreRoot(storeRoot string) (string, error) {
@@ -136,19 +129,19 @@ func writeManifestObjects(repoRoot, storeRoot, repoID string, maxFileSizeMB int,
 		if entry.Size > maxFileBytes {
 			entry.Status = artifacts.ArtifactStatusSkipped
 			entry.Hash = ""
-			warnf(stderr, "warning: skipping artifact %q: size %d bytes exceeds max_file_size_mb=%d", entry.Path, entry.Size, maxFileSizeMB)
+			logging.Warnf(stderr, "warning: skipping artifact %q: size %d bytes exceeds max_file_size_mb=%d", entry.Path, entry.Size, maxFileSizeMB)
 			continue
 		}
 
 		filePath := filepath.Join(repoRoot, filepath.FromSlash(entry.Path))
 		data, err := os.ReadFile(filePath)
 		if err != nil {
-			warnf(stderr, "warning: unable to read artifact file %q for object store write: %v", entry.Path, err)
+			logging.Warnf(stderr, "warning: unable to read artifact file %q for object store write: %v", entry.Path, err)
 			continue
 		}
 
 		if _, err := writeObjectFn(objectsDir, data); err != nil {
-			warnf(stderr, "warning: unable to write object for artifact %q: %v", entry.Path, err)
+			logging.Warnf(stderr, "warning: unable to write object for artifact %q: %v", entry.Path, err)
 			continue
 		}
 	}
