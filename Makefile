@@ -2,7 +2,11 @@ SHELL := /usr/bin/env bash
 
 BENCH_REGEX = BenchmarkRunDispatchListNoop|BenchmarkRunSnapshotFixture|BenchmarkPromptRestoreConfirmation
 
-.PHONY: test test-commands test-acceptance bench-smoke bench
+.PHONY: build test test-commands test-acceptance bench-smoke bench
+
+build:
+	mkdir -p bin
+	go build -o bin/verti .
 
 test:
 	go test ./...

@@ -3,6 +3,9 @@
 ## Commands
 
 ```bash
+# build the binary
+make build
+
 # run all tests
 make test
 
