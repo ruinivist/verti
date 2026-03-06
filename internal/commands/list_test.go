@@ -29,34 +29,38 @@ func TestRunListOutputsTableForCurrentWorktreeOnly(t *testing.T) {
 	writeRepoConfig(t, repoDir, cfg)
 
 	mainScope := filepath.Join(storeRoot, "repos", cfg.RepoID, "worktrees", "main")
-	_, err := snapshots.PublishSnapshot(mainScope, "aaa111", nil, snapshots.Meta{
-		CommitSHA:    "aaa111",
+	shaA := strings.Repeat("a", 40)
+	shaB := strings.Repeat("b", 40)
+	shaC := strings.Repeat("c", 40)
+
+	_, err := snapshots.PublishSnapshot(mainScope, mustSnapshotID(t, "main", shaA), nil, snapshots.Meta{
+		CommitSHA:    shaA,
 		Branch:       "main",
 		CreatedAt:    "2026-03-02T08:00:00Z",
 		SnapshotKind: snapshots.SnapshotKindNormal,
 	})
 	if err != nil {
-		t.Fatalf("publish main snapshot aaa111: %v", err)
+		t.Fatalf("publish main snapshot %s: %v", shaA, err)
 	}
-	_, err = snapshots.PublishSnapshot(mainScope, "bbb222", nil, snapshots.Meta{
-		CommitSHA:    "bbb222",
+	_, err = snapshots.PublishSnapshot(mainScope, mustSnapshotID(t, "main", shaB), nil, snapshots.Meta{
+		CommitSHA:    shaB,
 		Branch:       "main",
 		CreatedAt:    "2026-03-02T09:00:00Z",
 		SnapshotKind: snapshots.SnapshotKindNormal,
 	})
 	if err != nil {
-		t.Fatalf("publish main snapshot bbb222: %v", err)
+		t.Fatalf("publish main snapshot %s: %v", shaB, err)
 	}
 
 	otherScope := filepath.Join(storeRoot, "repos", cfg.RepoID, "worktrees", "other")
-	_, err = snapshots.PublishSnapshot(otherScope, "ccc333", nil, snapshots.Meta{
-		CommitSHA:    "ccc333",
+	_, err = snapshots.PublishSnapshot(otherScope, mustSnapshotID(t, "feature", shaC), nil, snapshots.Meta{
+		CommitSHA:    shaC,
 		Branch:       "feature",
 		CreatedAt:    "2026-03-02T10:00:00Z",
 		SnapshotKind: snapshots.SnapshotKindNormal,
 	})
 	if err != nil {
-		t.Fatalf("publish other-worktree snapshot ccc333: %v", err)
+		t.Fatalf("publish other-worktree snapshot %s: %v", shaC, err)
 	}
 
 	var stdout bytes.Buffer
@@ -71,10 +75,10 @@ func TestRunListOutputsTableForCurrentWorktreeOnly(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(out, "aaa111") || !strings.Contains(out, "bbb222") {
+	if !strings.Contains(out, shaA) || !strings.Contains(out, shaB) {
 		t.Fatalf("expected main worktree snapshots in output, got %q", out)
 	}
-	if strings.Contains(out, "ccc333") {
+	if strings.Contains(out, shaC) {
 		t.Fatalf("expected other-worktree snapshot to be filtered out, got %q", out)
 	}
 	if !strings.Contains(out, "2026-03-02T09:00:00Z") {
@@ -124,8 +128,9 @@ func TestRunListWithOrphansIncludesOrphanIDAndCheckoutSHA(t *testing.T) {
 	writeRepoConfig(t, repoDir, cfg)
 
 	mainScope := filepath.Join(storeRoot, "repos", cfg.RepoID, "worktrees", "main")
-	_, err := snapshots.PublishSnapshot(mainScope, "abc123", nil, snapshots.Meta{
-		CommitSHA:    "abc123",
+	sha := strings.Repeat("d", 40)
+	_, err := snapshots.PublishSnapshot(mainScope, mustSnapshotID(t, "main", sha), nil, snapshots.Meta{
+		CommitSHA:    sha,
 		Branch:       "main",
 		CreatedAt:    "2026-03-02T08:00:00Z",
 		SnapshotKind: snapshots.SnapshotKindNormal,
@@ -201,4 +206,13 @@ func TestRunListWithOrphansIncludesDotPrefixedOrphanIDs(t *testing.T) {
 	if strings.Contains(out, "staged") {
 		t.Fatalf("internal .tmp staging dirs must not appear in list output, got %q", out)
 	}
+}
+
+func mustSnapshotID(t *testing.T, branchIdentity, sha string) string {
+	t.Helper()
+	id, err := snapshots.SnapshotID(branchIdentity, sha)
+	if err != nil {
+		t.Fatalf("SnapshotID(%q, %q): %v", branchIdentity, sha, err)
+	}
+	return id
 }

@@ -10,10 +10,9 @@ type Handler func(args []string) error
 
 // Handlers groups handlers for each supported subcommand.
 type Handlers struct {
-	Init     Handler
-	Snapshot Handler
-	Restore  Handler
-	List     Handler
+	Init Handler
+	Sync Handler
+	List Handler
 }
 
 // UsageError indicates incorrect CLI usage.
@@ -28,8 +27,7 @@ func (e *UsageError) Error() string {
 const usageText = `Usage: verti <command> [args]
 Commands:
   init
-  snapshot
-  restore <sha>
+  sync [--debounced]
   list`
 
 // WriteUsage prints usage text.
@@ -49,13 +47,8 @@ func Dispatch(args []string, handlers Handlers) error {
 	switch command {
 	case "init":
 		return callHandler("init", handlers.Init, rest)
-	case "snapshot":
-		return callHandler("snapshot", handlers.Snapshot, rest)
-	case "restore":
-		if len(rest) == 0 {
-			return &UsageError{Message: "restore requires a target SHA argument"}
-		}
-		return callHandler("restore", handlers.Restore, rest)
+	case "sync":
+		return callHandler("sync", handlers.Sync, rest)
 	case "list":
 		return callHandler("list", handlers.List, rest)
 	default:

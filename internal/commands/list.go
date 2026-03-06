@@ -84,6 +84,10 @@ func loadListRows(snapshotsDir, orphansDir string, includeOrphans bool) ([]listR
 		if snapshots.IsInternalCollectionDir(entry.Name()) {
 			continue
 		}
+		_, commitFromID, ok := snapshots.ParseSnapshotID(entry.Name())
+		if !ok {
+			continue
+		}
 
 		snapshotDir := filepath.Join(snapshotsDir, entry.Name())
 		meta, err := readSnapshotMetaForList(snapshotDir)
@@ -93,7 +97,7 @@ func loadListRows(snapshotsDir, orphansDir string, includeOrphans bool) ([]listR
 
 		commit := meta.CommitSHA
 		if commit == "" {
-			commit = entry.Name()
+			commit = commitFromID
 		}
 		kind := meta.SnapshotKind
 		if kind == "" {

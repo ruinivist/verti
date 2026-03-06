@@ -15,11 +15,8 @@ func main() {
 		Init: newHandler(func(wd string, _ []string) error {
 			return commands.RunInit(wd)
 		}),
-		Snapshot: newHandler(func(wd string, _ []string) error {
-			return commands.RunSnapshot(wd)
-		}),
-		Restore: newHandler(commands.RunRestore),
-		List:    newHandler(commands.RunList),
+		Sync: newHandler(commands.RunSync),
+		List: newHandler(commands.RunList),
 	}
 
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, handlers))

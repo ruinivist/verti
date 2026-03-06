@@ -5,62 +5,32 @@ import (
 	"testing"
 )
 
-func TestSnapshotDispatchersContainMarkerSnapshotAndLegacyPassthrough(t *testing.T) {
-	tests := []struct {
-		name string
-		hook string
-	}{
-		{name: "post_commit", hook: "post-commit"},
-		{name: "post_merge", hook: "post-merge"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			script, err := DispatcherTemplate(tc.hook, "/abs/path/verti", "/abs/path/legacy")
-			if err != nil {
-				t.Fatalf("DispatcherTemplate() error = %v", err)
-			}
-
-				if !strings.Contains(script, "# verti-hooks") {
-					t.Fatalf("script missing dispatcher marker:\n%s", script)
-				}
-			if !strings.Contains(script, "\"$VERTI_BIN\" snapshot || true") {
-				t.Fatalf("script missing snapshot call:\n%s", script)
-			}
-			if !strings.Contains(script, "[ -x \"$LEGACY_HOOK\" ] && \"$LEGACY_HOOK\" \"$@\"") {
-				t.Fatalf("script missing legacy passthrough:\n%s", script)
-			}
-		})
-	}
-}
-
-func TestCheckoutDispatcherRestoresForBranchCheckout(t *testing.T) {
-	script, err := DispatcherTemplate("post-checkout", "/abs/path/verti", "/abs/path/legacy")
+func TestReferenceTransactionDispatcherContainsMarkerSyncAndLegacyPassthrough(t *testing.T) {
+	script, err := DispatcherTemplate(ReferenceTransactionHook, "/abs/path/verti", "/abs/path/legacy")
 	if err != nil {
 		t.Fatalf("DispatcherTemplate() error = %v", err)
 	}
 
-	if !strings.Contains(script, "if [ \"${3:-0}\" = \"1\" ]; then") {
-		t.Fatalf("checkout script missing branch-checkout guard:\n%s", script)
+	if !strings.Contains(script, "# verti-hooks") {
+		t.Fatalf("script missing dispatcher marker:\n%s", script)
 	}
-	if !strings.Contains(script, "\"$VERTI_BIN\" restore \"${2}\" || true") {
-		t.Fatalf("checkout script missing restore call for new sha:\n%s", script)
+	if !strings.Contains(script, "STATE=\"${1:-}\"") {
+		t.Fatalf("script missing state parsing:\n%s", script)
+	}
+	if !strings.Contains(script, "if [ \"${VERTI_BYPASS:-0}\" = \"0\" ] && [ \"$STATE\" = \"committed\" ]; then") {
+		t.Fatalf("script missing committed-state guard:\n%s", script)
+	}
+	if !strings.Contains(script, "\"$VERTI_BIN\" sync --debounced || true") {
+		t.Fatalf("script missing sync call:\n%s", script)
+	}
+	if !strings.Contains(script, "printf '%s' \"$TRANSACTION_INPUT\" | \"$LEGACY_HOOK\" \"$@\" || true") {
+		t.Fatalf("script missing best-effort legacy passthrough with stdin forwarding:\n%s", script)
 	}
 }
 
-func TestRewriteDispatcherCapturesAndForwardsStdinToLegacyHook(t *testing.T) {
-	script, err := DispatcherTemplate("post-rewrite", "/abs/path/verti", "/abs/path/legacy")
-	if err != nil {
-		t.Fatalf("DispatcherTemplate() error = %v", err)
-	}
-
-	if !strings.Contains(script, "REWRITE_INPUT=\"$(cat)\"") {
-		t.Fatalf("rewrite script missing stdin capture:\n%s", script)
-	}
-	if !strings.Contains(script, "\"$VERTI_BIN\" snapshot || true") {
-		t.Fatalf("rewrite script missing snapshot call:\n%s", script)
-	}
-	if !strings.Contains(script, "printf '%s' \"$REWRITE_INPUT\" | \"$LEGACY_HOOK\" \"$@\"") {
-		t.Fatalf("rewrite script missing stdin forwarding to legacy hook:\n%s", script)
+func TestDispatcherTemplateRejectsUnsupportedHook(t *testing.T) {
+	_, err := DispatcherTemplate("post-commit", "/abs/path/verti", "/abs/path/legacy")
+	if err == nil {
+		t.Fatalf("expected unsupported hook error")
 	}
 }

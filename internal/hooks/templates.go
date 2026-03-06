@@ -13,17 +13,11 @@ import (
 var dispatcherTemplates embed.FS
 
 const (
-	PostCommitHook   = "post-commit"
-	PostMergeHook    = "post-merge"
-	PostCheckoutHook = "post-checkout"
-	PostRewriteHook  = "post-rewrite"
+	ReferenceTransactionHook = "reference-transaction"
 )
 
 var hookTemplateFile = map[string]string{
-	PostCommitHook:   "snapshot.sh.tmpl",
-	PostMergeHook:    "snapshot.sh.tmpl",
-	PostCheckoutHook: "checkout.sh.tmpl",
-	PostRewriteHook:  "rewrite.sh.tmpl",
+	ReferenceTransactionHook: "reference_transaction.sh.tmpl",
 }
 
 // DispatcherTemplate returns the bash dispatcher script for the given hook.

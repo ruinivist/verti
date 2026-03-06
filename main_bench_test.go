@@ -9,10 +9,9 @@ import (
 
 func BenchmarkRunDispatchListNoop(b *testing.B) {
 	handlers := cli.Handlers{
-		Init:     func(_ []string) error { return nil },
-		Snapshot: func(_ []string) error { return nil },
-		Restore:  func(_ []string) error { return nil },
-		List:     func(_ []string) error { return nil },
+		Init: func(_ []string) error { return nil },
+		Sync: func(_ []string) error { return nil },
+		List: func(_ []string) error { return nil },
 	}
 
 	b.ReportAllocs()

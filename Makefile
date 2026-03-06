@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-BENCH_REGEX = BenchmarkRunDispatchListNoop|BenchmarkRunSnapshotFixture|BenchmarkPromptRestoreConfirmation
+BENCH_REGEX = BenchmarkRunDispatchListNoop
 
 .PHONY: build test test-commands test-acceptance bench-smoke bench
 
@@ -15,7 +15,7 @@ test-commands:
 	go test ./internal/commands
 
 test-acceptance:
-	go test ./internal/commands -run TestMVPAcceptanceMatrixAC1ToAC9
+	go test ./internal/commands -run 'TestRunSyncMissingSnapshotPublishesCurrentStateSnapshot|TestRunSyncExistingSnapshotRestoresInForceMode|TestRunSyncDebouncedCoalescesBurstToSingleApply'
 	go test ./internal/snapshots -run TestMVPAcceptanceCriterion10NoPartialSnapshotVisibleOnPublishFailure
 
 bench-smoke:

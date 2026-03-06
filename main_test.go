@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"verti/internal/cli"
+	"verti/internal/commands"
 )
 
 func TestRunUnknownCommandShowsUsageAndNonZero(t *testing.T) {
@@ -25,20 +26,23 @@ func TestRunUnknownCommandShowsUsageAndNonZero(t *testing.T) {
 	}
 }
 
-func TestRunRestoreWithoutSHAShowsActionableUsage(t *testing.T) {
+func TestRunSyncWithUnexpectedArgsShowsActionableUsage(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	exitCode := run([]string{"restore"}, &stdout, &stderr, cli.Handlers{})
+	handlers := cli.Handlers{
+		Sync: newHandler(commands.RunSync),
+	}
+	exitCode := run([]string{"sync", "unexpected"}, &stdout, &stderr, handlers)
 
 	if exitCode == 0 {
-		t.Fatalf("expected non-zero exit code for restore without sha")
+		t.Fatalf("expected non-zero exit code for sync with unexpected args")
 	}
-	if !strings.Contains(stderr.String(), "restore requires a target SHA argument") {
-		t.Fatalf("expected actionable restore usage error, got: %q", stderr.String())
+	if !strings.Contains(stderr.String(), "sync accepts no positional args") {
+		t.Fatalf("expected actionable sync usage error, got: %q", stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "Usage: verti <command> [args]") {
-		t.Fatalf("expected usage text for restore error, got: %q", stderr.String())
+		t.Fatalf("expected usage text for sync error, got: %q", stderr.String())
 	}
 }
 
@@ -59,24 +63,11 @@ func TestRunDispatchesValidSubcommandsToHandlers(t *testing.T) {
 			},
 		},
 		{
-			name: "snapshot",
-			args: []string{"snapshot"},
+			name: "sync",
+			args: []string{"sync"},
 			handler: func(called *bool) func([]string) error {
 				return func(_ []string) error {
 					*called = true
-					return nil
-				}
-			},
-		},
-		{
-			name: "restore",
-			args: []string{"restore", "abc123"},
-			handler: func(called *bool) func([]string) error {
-				return func(got []string) error {
-					*called = true
-					if len(got) != 1 || got[0] != "abc123" {
-						t.Fatalf("unexpected restore args: %#v", got)
-					}
 					return nil
 				}
 			},
@@ -99,24 +90,20 @@ func TestRunDispatchesValidSubcommandsToHandlers(t *testing.T) {
 			var stderr bytes.Buffer
 
 			initCalled := false
-			snapshotCalled := false
-			restoreCalled := false
+			syncCalled := false
 			listCalled := false
 
 			handlers := cli.Handlers{
-				Init:     func(_ []string) error { return nil },
-				Snapshot: func(_ []string) error { return nil },
-				Restore:  func(_ []string) error { return nil },
-				List:     func(_ []string) error { return nil },
+				Init: func(_ []string) error { return nil },
+				Sync: func(_ []string) error { return nil },
+				List: func(_ []string) error { return nil },
 			}
 
 			switch tc.name {
 			case "init":
 				handlers.Init = tc.handler(&initCalled)
-			case "snapshot":
-				handlers.Snapshot = tc.handler(&snapshotCalled)
-			case "restore":
-				handlers.Restore = tc.handler(&restoreCalled)
+			case "sync":
+				handlers.Sync = tc.handler(&syncCalled)
 			case "list":
 				handlers.List = tc.handler(&listCalled)
 			}
@@ -129,11 +116,8 @@ func TestRunDispatchesValidSubcommandsToHandlers(t *testing.T) {
 			if tc.name == "init" && !initCalled {
 				t.Fatalf("expected init handler to be called")
 			}
-			if tc.name == "snapshot" && !snapshotCalled {
-				t.Fatalf("expected snapshot handler to be called")
-			}
-			if tc.name == "restore" && !restoreCalled {
-				t.Fatalf("expected restore handler to be called")
+			if tc.name == "sync" && !syncCalled {
+				t.Fatalf("expected sync handler to be called")
 			}
 			if tc.name == "list" && !listCalled {
 				t.Fatalf("expected list handler to be called")

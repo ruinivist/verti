@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 )
 
-// FindSnapshot resolves <scopeDir>/snapshots/<sha> and reports whether it exists.
-func FindSnapshot(scopeDir, sha string) (string, bool, error) {
-	return findInCollection(scopeDir, "snapshots", sha)
+// FindSnapshot resolves <scopeDir>/snapshots/<snapshotID> and reports whether it exists.
+func FindSnapshot(scopeDir, snapshotID string) (string, bool, error) {
+	return findInCollection(scopeDir, "snapshots", snapshotID)
 }
 
 // FindOrphanSnapshot resolves <scopeDir>/orphans/<orphanID> and reports whether it exists.

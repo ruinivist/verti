@@ -75,7 +75,7 @@ func TestRunInitOutsideGitWorktreeReturnsClearError(t *testing.T) {
 	}
 }
 
-func TestRunInitInstallsAllRequiredDispatchers(t *testing.T) {
+func TestRunInitInstallsReferenceTransactionDispatcherOnly(t *testing.T) {
 	requireGit(t)
 
 	repoDir := createGitRepo(t)
@@ -84,28 +84,61 @@ func TestRunInitInstallsAllRequiredDispatchers(t *testing.T) {
 		t.Fatalf("runInit() error = %v", err)
 	}
 
-	for _, hookName := range []string{"post-commit", "post-checkout", "post-merge", "post-rewrite"} {
-		hookPath := filepath.Join(repoDir, ".git", "hooks", hookName)
+	hookPath := filepath.Join(repoDir, ".git", "hooks", "reference-transaction")
+	info, err := os.Stat(hookPath)
+	if err != nil {
+		t.Fatalf("stat hook %q: %v", hookPath, err)
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("hook %q is not executable (mode=%o)", hookPath, info.Mode().Perm())
+	}
 
-		info, err := os.Stat(hookPath)
-		if err != nil {
-			t.Fatalf("stat hook %q: %v", hookPath, err)
-		}
-		if info.Mode().Perm()&0o111 == 0 {
-			t.Fatalf("hook %q is not executable (mode=%o)", hookPath, info.Mode().Perm())
-		}
+	content := mustReadFile(t, hookPath)
+	if !strings.Contains(content, "# verti-hooks") {
+		t.Fatalf("hook %q missing dispatcher marker:\n%s", hookPath, content)
+	}
+	if !strings.Contains(content, "VERTI_BIN=\"/abs/path/to/verti\"") {
+		t.Fatalf("hook %q missing embedded verti binary path:\n%s", hookPath, content)
+	}
+	if !strings.Contains(content, "\"$VERTI_BIN\" sync --debounced || true") {
+		t.Fatalf("hook %q missing sync invocation:\n%s", hookPath, content)
+	}
 
-		content := mustReadFile(t, hookPath)
-		if !strings.Contains(content, "# verti-hooks") {
-			t.Fatalf("hook %q missing dispatcher marker:\n%s", hookPath, content)
-		}
-		if !strings.Contains(content, "VERTI_BIN=\"/abs/path/to/verti\"") {
-			t.Fatalf("hook %q missing embedded verti binary path:\n%s", hookPath, content)
+	for _, legacy := range []string{"post-commit", "post-checkout", "post-merge", "post-rewrite"} {
+		legacyPath := filepath.Join(repoDir, ".git", "hooks", legacy)
+		if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
+			t.Fatalf("expected legacy hook %q to be absent after init", legacyPath)
 		}
 	}
 }
 
-func TestRunInitIsIdempotentForInstalledDispatchers(t *testing.T) {
+func TestRunInitCleansUpLegacyVertiDispatchersAndRestoresCapturedHook(t *testing.T) {
+	requireGit(t)
+
+	repoDir := createGitRepo(t)
+	legacyHookPath := filepath.Join(repoDir, ".git", "hooks", "post-commit")
+	capturedPath := legacyHookPath + ".verti.orig-hooks.0"
+	captured := "#!/usr/bin/env bash\necho foreign\n"
+	if err := os.WriteFile(capturedPath, []byte(captured), 0o755); err != nil {
+		t.Fatalf("write captured hook: %v", err)
+	}
+
+	dispatcher := "#!/usr/bin/env bash\n# verti-hooks\nLEGACY_HOOK=\"" + capturedPath + "\"\n"
+	if err := os.WriteFile(legacyHookPath, []byte(dispatcher), 0o755); err != nil {
+		t.Fatalf("write legacy dispatcher hook: %v", err)
+	}
+
+	if err := runInit(repoDir, "/abs/path/to/verti"); err != nil {
+		t.Fatalf("runInit() error = %v", err)
+	}
+
+	got := mustReadFile(t, legacyHookPath)
+	if got != captured {
+		t.Fatalf("expected legacy hook to be restored from captured backup\n got=%q\nwant=%q", got, captured)
+	}
+}
+
+func TestRunInitIsIdempotentForInstalledDispatcher(t *testing.T) {
 	requireGit(t)
 
 	repoDir := createGitRepo(t)
@@ -114,31 +147,16 @@ func TestRunInitIsIdempotentForInstalledDispatchers(t *testing.T) {
 		t.Fatalf("runInit(first) error = %v", err)
 	}
 
-	firstContents := make(map[string]string, 4)
-	for _, hookName := range []string{"post-commit", "post-checkout", "post-merge", "post-rewrite"} {
-		hookPath := filepath.Join(repoDir, ".git", "hooks", hookName)
-		firstContents[hookName] = mustReadFile(t, hookPath)
-	}
+	hookPath := filepath.Join(repoDir, ".git", "hooks", "reference-transaction")
+	first := mustReadFile(t, hookPath)
 
 	if err := runInit(repoDir, "/abs/path/to/verti"); err != nil {
 		t.Fatalf("runInit(second) error = %v", err)
 	}
 
-	for hookName, first := range firstContents {
-		hookPath := filepath.Join(repoDir, ".git", "hooks", hookName)
-		second := mustReadFile(t, hookPath)
-		if second != first {
-			t.Fatalf("hook %q changed across idempotent rerun", hookName)
-		}
-
-		backupPattern := hookPath + ".verti.orig-hooks.*"
-		backupMatches, err := filepath.Glob(backupPattern)
-		if err != nil {
-			t.Fatalf("glob %q: %v", backupPattern, err)
-		}
-		if len(backupMatches) != 0 {
-			t.Fatalf("expected no backup files for clean install rerun; got %v", backupMatches)
-		}
+	second := mustReadFile(t, hookPath)
+	if second != first {
+		t.Fatalf("reference-transaction hook changed across idempotent rerun")
 	}
 }
 

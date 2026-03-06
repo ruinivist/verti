@@ -12,7 +12,7 @@ make test
 # run command package tests
 make test-commands
 
-# run acceptance matrix tests (AC1-AC10)
+# run acceptance-focused tests
 make test-acceptance
 
 # run all benchmarks (quick single-iteration smoke)
@@ -23,9 +23,8 @@ make bench
 
 # run a local binary command
 go run . list
-go run . snapshot
-go run . restore <sha>
-go run . restore --orphan <id>
+go run . sync
+go run . sync --debounced
 ```
 
 ## Direct Go Commands
@@ -34,6 +33,6 @@ go run . restore --orphan <id>
 go test ./...
 
 go test ./... -run '^$' \
-  -bench 'BenchmarkRunDispatchListNoop|BenchmarkRunSnapshotFixture|BenchmarkPromptRestoreConfirmation' \
+  -bench 'BenchmarkRunDispatchListNoop' \
   -benchmem -count=10
 ```

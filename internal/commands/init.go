@@ -56,16 +56,26 @@ func runInit(workingDir, vertiBinPath string) error {
 	}
 
 	hookNames := []string{
-		hooks.PostCommitHook,
-		hooks.PostCheckoutHook,
-		hooks.PostMergeHook,
-		hooks.PostRewriteHook,
+		hooks.ReferenceTransactionHook,
 	}
 
 	for _, hookName := range hookNames {
 		hookPath := filepath.Join(hooksDir, hookName)
 		if _, err := hooks.InstallHookDispatcher(hookPath, hookName, vertiBinPath); err != nil {
 			return fmt.Errorf("install dispatcher for %s: %w", hookName, err)
+		}
+	}
+
+	legacyHookNames := []string{
+		"post-commit",
+		"post-checkout",
+		"post-merge",
+		"post-rewrite",
+	}
+	for _, hookName := range legacyHookNames {
+		hookPath := filepath.Join(hooksDir, hookName)
+		if err := hooks.RemoveVertiDispatcher(hookPath); err != nil {
+			return fmt.Errorf("cleanup legacy dispatcher for %s: %w", hookName, err)
 		}
 	}
 

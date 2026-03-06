@@ -61,6 +61,38 @@ func InstallHookDispatcher(hookPath, hookName, vertiBinPath string) (InstallResu
 	}, nil
 }
 
+// RemoveVertiDispatcher removes a Verti-managed dispatcher hook, restoring
+// the captured legacy hook if the dispatcher points to one that still exists.
+func RemoveVertiDispatcher(hookPath string) error {
+	currentHook, err := readFileWithInfo(hookPath)
+	if err != nil {
+		return err
+	}
+	if !currentHook.exists {
+		return nil
+	}
+	if !bytes.Contains(currentHook.data, []byte(dispatcherMarker)) {
+		return nil
+	}
+
+	legacyPath := legacyHookPathFromDispatcher(currentHook.data)
+	if legacyPath != "" {
+		legacyHook, err := readFileWithInfo(legacyPath)
+		if err == nil && legacyHook.exists {
+			mode := modeOrDefault(legacyHook.info.Mode().Perm(), 0o755)
+			if err := writeFileAtomically(hookPath, legacyHook.data, mode); err != nil {
+				return err
+			}
+			return nil
+		}
+	}
+
+	if err := os.Remove(hookPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove legacy dispatcher %q: %w", hookPath, err)
+	}
+	return nil
+}
+
 // ensureBackupSlot writes foreignContent to the next backup slot and returns that slot path.
 func ensureBackupSlot(hookPath string, foreignContent []byte, mode os.FileMode) (string, error) {
 	next, err := nextBackupSlot(hookPath)
@@ -127,6 +159,25 @@ func modeOrDefault(mode, fallback os.FileMode) os.FileMode {
 		return fallback
 	}
 	return mode
+}
+
+func legacyHookPathFromDispatcher(data []byte) string {
+	const marker = "LEGACY_HOOK=\""
+	idx := bytes.Index(data, []byte(marker))
+	if idx < 0 {
+		return ""
+	}
+	start := idx + len(marker)
+	if start >= len(data) {
+		return ""
+	}
+
+	end := bytes.IndexByte(data[start:], '"')
+	if end < 0 {
+		return ""
+	}
+
+	return string(data[start : start+end])
 }
 
 type fileReadResult struct {
