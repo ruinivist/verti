@@ -8,8 +8,8 @@ LEGACY_HOOK={{ .LegacyHookPath }}
 
 if [ "${VERTI_BYPASS:-0}" = "0" ]; then
   # post-checkout args: $1=old HEAD, $2=new HEAD, $3=1 branch checkout, $3=0 file checkout.
-  # Restore only when checkout changed the commit.
-  if [ "${3:-0}" = "1" ] && [ "${1:-}" != "${2:-}" ]; then
+  # Restore on branch-style checkouts, including detached/same-commit transitions.
+  if [ "${3:-0}" = "1" ]; then
     "$VERTI_BIN" restore "${2}" || true
   fi
 fi

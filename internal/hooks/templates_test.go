@@ -34,14 +34,14 @@ func TestSnapshotDispatchersContainMarkerSnapshotAndLegacyPassthrough(t *testing
 	}
 }
 
-func TestCheckoutDispatcherRestoresOnlyForCommitChangingBranchCheckout(t *testing.T) {
+func TestCheckoutDispatcherRestoresForBranchCheckout(t *testing.T) {
 	script, err := DispatcherTemplate("post-checkout", "/abs/path/verti", "/abs/path/legacy")
 	if err != nil {
 		t.Fatalf("DispatcherTemplate() error = %v", err)
 	}
 
-	if !strings.Contains(script, "if [ \"${3:-0}\" = \"1\" ] && [ \"${1:-}\" != \"${2:-}\" ]; then") {
-		t.Fatalf("checkout script missing commit-changing guard:\n%s", script)
+	if !strings.Contains(script, "if [ \"${3:-0}\" = \"1\" ]; then") {
+		t.Fatalf("checkout script missing branch-checkout guard:\n%s", script)
 	}
 	if !strings.Contains(script, "\"$VERTI_BIN\" restore \"${2}\" || true") {
 		t.Fatalf("checkout script missing restore call for new sha:\n%s", script)

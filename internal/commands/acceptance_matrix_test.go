@@ -67,7 +67,7 @@ func TestMVPAcceptanceMatrixAC1ToAC9(t *testing.T) {
 		}
 	})
 
-	t.Run("AC3_checkout_hook_restores_only_on_commit_change", func(t *testing.T) {
+	t.Run("AC3_checkout_hook_restores_on_branch_checkout", func(t *testing.T) {
 		repoDir := createGitRepo(t)
 		foreignHook := "#!/usr/bin/env bash\nexit 0\n"
 		hookPath := filepath.Join(repoDir, ".git", "hooks", "post-checkout")
@@ -86,7 +86,7 @@ func TestMVPAcceptanceMatrixAC1ToAC9(t *testing.T) {
 			t.Fatalf("runInit() error = %v", err)
 		}
 
-		runHook(t, repoDir, hookPath, "a", "a", "1") // same commit
+		runHook(t, repoDir, hookPath, "a", "a", "1") // same commit, branch-style checkout
 		runHook(t, repoDir, hookPath, "a", "b", "0") // non-commit checkout
 		runHook(t, repoDir, hookPath, "a", "c", "1") // commit-changing checkout
 
@@ -96,8 +96,8 @@ func TestMVPAcceptanceMatrixAC1ToAC9(t *testing.T) {
 		}
 		lines := strings.Fields(strings.TrimSpace(string(raw)))
 		got := strings.Join(lines, " ")
-		if got != "restore c" {
-			t.Fatalf("expected exactly one restore invocation for commit-changing checkout, got %q", got)
+		if got != "restore a restore c" {
+			t.Fatalf("expected restore invocation for each branch-style checkout, got %q", got)
 		}
 	})
 
