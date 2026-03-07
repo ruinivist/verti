@@ -149,11 +149,27 @@ if [ "$state" != "committed" ]; then
   exit 0
 fi
 
+in_rebase=0
+if [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
+  in_rebase=1
+fi
+
+zero=0000000000000000000000000000000000000000
 trigger=0
 while IFS=' ' read -r old new ref; do
+  case "$new" in
+    "$zero"|ref:*)
+      continue
+      ;;
+  esac
+
   case "$ref" in
-    HEAD|refs/heads/*)
-      if [ "$new" != "0000000000000000000000000000000000000000" ]; then
+    refs/heads/*)
+      trigger=1
+      break
+      ;;
+    HEAD)
+      if [ "$in_rebase" -ne 1 ]; then
         trigger=1
         break
       fi
