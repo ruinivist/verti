@@ -4,14 +4,18 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/google/uuid"
 )
 
 const (
-	configPath = ".git/config.toml"
-	hookPath   = ".git/hooks/reference-transaction"
+	configPath    = ".git/config.toml"
+	hookPath      = ".git/hooks/reference-transaction"
+	trackedFile   = "test.md"
+	storageSubdir = ".verti/repos"
 )
 
 func main() {
@@ -70,7 +74,64 @@ func runSync(args []string) {
 }
 
 func runSyncAction() {
-	fmt.Printf("sync\n")
+	if err := ensureGitDir(); err != nil {
+		fmt.Println("not a git repository")
+		os.Exit(1)
+	}
+
+	if _, err := os.Stat(trackedFile); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			fmt.Println("test.md not found")
+			os.Exit(1)
+		}
+		fmt.Printf("failed to check test.md: %v\n", err)
+		os.Exit(1)
+	}
+
+	repoID, err := readRepoID(configPath)
+	if err != nil {
+		fmt.Printf("failed to read repo_id: %v\n", err)
+		os.Exit(1)
+	}
+
+	head, err := gitHead()
+	if err != nil {
+		fmt.Printf("failed to get head: %v\n", err)
+		os.Exit(1)
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Printf("failed to resolve home: %v\n", err)
+		os.Exit(1)
+	}
+
+	repoStoreDir := filepath.Join(home, storageSubdir, repoID)
+	if err := os.MkdirAll(repoStoreDir, 0o755); err != nil {
+		fmt.Printf("failed to create repo store: %v\n", err)
+		os.Exit(1)
+	}
+
+	snapshotPath := filepath.Join(repoStoreDir, head)
+	_, err = os.Stat(snapshotPath)
+	if err == nil {
+		if err := copyFile(snapshotPath, trackedFile); err != nil {
+			fmt.Printf("failed to restore snapshot: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("restore %s\n", head)
+		return
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		fmt.Printf("failed to check snapshot: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := copyFile(trackedFile, snapshotPath); err != nil {
+		fmt.Printf("failed to write snapshot: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("snapshot %s\n", head)
 }
 
 func ensureGitDir() error {
@@ -108,4 +169,52 @@ printf "reference-transaction committed ref update\n"
 verti sync
 `
 	return os.WriteFile(hookPath, []byte(content), 0o755)
+}
+
+func readRepoID(path string) (string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "repo_id") {
+			continue
+		}
+
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			return "", errors.New("invalid repo_id line")
+		}
+
+		value := strings.TrimSpace(parts[1])
+		if len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
+			return "", errors.New("repo_id must be quoted")
+		}
+		repoID := value[1 : len(value)-1]
+		if repoID == "" {
+			return "", errors.New("empty repo_id")
+		}
+		return repoID, nil
+	}
+
+	return "", errors.New("repo_id not found")
+}
+
+func gitHead() (string, error) {
+	out, err := exec.Command("git", "rev-parse", "HEAD").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func copyFile(src, dst string) error {
+	content, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, content, 0o644)
 }
