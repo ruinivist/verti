@@ -157,19 +157,15 @@ fi
 zero=0000000000000000000000000000000000000000
 trigger=0
 while IFS=' ' read -r old new ref; do
-  case "$new" in
-    "$zero"|ref:*)
-      continue
-      ;;
-  esac
-
   case "$ref" in
-    refs/heads/*)
-      trigger=1
-      break
-      ;;
     HEAD)
-      if [ "$in_rebase" -ne 1 ]; then
+      if [ "$in_rebase" -ne 1 ] && [ "$new" != "$zero" ]; then
+        trigger=1
+        break
+      fi
+      ;;
+    refs/heads/*)
+      if [ "$old" != "$zero" ] && [ "$new" != "$zero" ]; then
         trigger=1
         break
       fi
