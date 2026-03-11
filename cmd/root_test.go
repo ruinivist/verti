@@ -28,7 +28,7 @@ func TestRun(t *testing.T) {
 		{
 			name:     "init",
 			args:     []string{"init"},
-			wantOut:  prefixed("init\n"),
+			wantOut:  prefixed("Done initialising...\n"),
 			wantCode: 0,
 		},
 		{
@@ -93,8 +93,8 @@ func TestRunInitExecution(t *testing.T) {
 			}
 		})
 
-		if stdout != prefixed("init\n") {
-			t.Fatalf("stdout = %q, want %q", stdout, prefixed("init\n"))
+		if stdout != prefixed("Done initialising...\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Done initialising...\n"))
 		}
 		if stderr != "" {
 			t.Fatalf("stderr = %q, want empty", stderr)
@@ -141,8 +141,8 @@ func TestRunSyncSnapshotAndRestore(t *testing.T) {
 			}
 		})
 
-		if stdout != prefixed("snapshot "+head+"\n") {
-			t.Fatalf("stdout = %q, want %q", stdout, prefixed("snapshot "+head+"\n"))
+		if stdout != prefixed("Artifacts at snapshot "+head+"\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Artifacts at snapshot "+head+"\n"))
 		}
 		if stderr != "" {
 			t.Fatalf("stderr = %q, want empty", stderr)

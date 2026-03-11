@@ -31,8 +31,8 @@ func TestSyncSnapshotsAndRestoresConfiguredArtifacts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Sync() error = %v", err)
 		}
-		if stdout != prefixed("snapshot "+head+"\n") {
-			t.Fatalf("stdout = %q, want %q", stdout, prefixed("snapshot "+head+"\n"))
+		if stdout != prefixed("Artifacts at snapshot "+head+"\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Artifacts at snapshot "+head+"\n"))
 		}
 		if stderr != "" {
 			t.Fatalf("stderr = %q, want empty", stderr)
@@ -100,8 +100,8 @@ func TestSyncSnapshotsNewHeadWithNestedArtifact(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Sync() error = %v", err)
 		}
-		if stdout != prefixed("snapshot "+head+"\n") {
-			t.Fatalf("stdout = %q, want %q", stdout, prefixed("snapshot "+head+"\n"))
+		if stdout != prefixed("Artifacts at snapshot "+head+"\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Artifacts at snapshot "+head+"\n"))
 		}
 		if stderr != "" {
 			t.Fatalf("stderr = %q, want empty", stderr)
