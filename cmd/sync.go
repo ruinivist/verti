@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"strings"
+
+	"verti/internal/verti"
 )
 
 func runSync(args []string) int {
@@ -11,6 +13,10 @@ func runSync(args []string) int {
 		return 1
 	}
 
-	fmt.Println("sync")
+	if err := verti.Sync(); err != nil {
+		fmt.Printf("%v\n", err)
+		return 1
+	}
+
 	return 0
 }

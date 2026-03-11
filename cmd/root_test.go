@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"verti/internal/verti"
 )
 
 func TestRun(t *testing.T) {
@@ -25,12 +28,6 @@ func TestRun(t *testing.T) {
 			name:     "init",
 			args:     []string{"init"},
 			wantOut:  "init\n",
-			wantCode: 0,
-		},
-		{
-			name:     "sync",
-			args:     []string{"sync"},
-			wantOut:  "sync\n",
 			wantCode: 0,
 		},
 		{
@@ -126,6 +123,97 @@ func TestRunInitExecution(t *testing.T) {
 	})
 }
 
+func TestRunSyncSnapshotAndRestore(t *testing.T) {
+	repoDir := newGitRepoForSync(t)
+	artifactPath := filepath.Join(repoDir, "test.md")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if err := verti.WriteConfig(filepath.Join(repoDir, ".git", "verti.toml"), verti.Config{
+		RepoID:    "repo-cmd-sync",
+		Artifacts: []string{"test.md"},
+	}); err != nil {
+		t.Fatalf("WriteConfig() error = %v", err)
+	}
+	writeTestFile(t, artifactPath, "snapshot body\n")
+
+	head := gitRevParse(t, repoDir, "HEAD")
+
+	withWorkingDir(t, repoDir, func() {
+		stdout, stderr := captureOutput(t, func() {
+			if got := Run([]string{"sync"}); got != 0 {
+				t.Fatalf("Run() code = %d, want %d", got, 0)
+			}
+		})
+
+		if stdout != "snapshot "+head+"\n" {
+			t.Fatalf("stdout = %q, want %q", stdout, "snapshot "+head+"\n")
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+
+		writeTestFile(t, artifactPath, "edited body\n")
+
+		stdout, stderr = captureOutput(t, func() {
+			if got := Run([]string{"sync"}); got != 0 {
+				t.Fatalf("Run() code = %d, want %d", got, 0)
+			}
+		})
+
+		if stdout != "restore "+head+"\n" {
+			t.Fatalf("stdout = %q, want %q", stdout, "restore "+head+"\n")
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+	})
+
+	content, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatalf("read artifact: %v", err)
+	}
+	if string(content) != "snapshot body\n" {
+		t.Fatalf("artifact = %q, want %q", string(content), "snapshot body\n")
+	}
+
+	snapshotPath := filepath.Join(home, ".verti", "repos", "repo-cmd-sync", head, "test.md")
+	snapshot, err := os.ReadFile(snapshotPath)
+	if err != nil {
+		t.Fatalf("read snapshot: %v", err)
+	}
+	if string(snapshot) != "snapshot body\n" {
+		t.Fatalf("snapshot = %q, want %q", string(snapshot), "snapshot body\n")
+	}
+}
+
+func TestRunSyncNoArtifacts(t *testing.T) {
+	repoDir := newGitRepoForSync(t)
+	t.Setenv("HOME", t.TempDir())
+
+	if err := verti.WriteConfig(filepath.Join(repoDir, ".git", "verti.toml"), verti.Config{
+		RepoID:    "repo-cmd-empty",
+		Artifacts: []string{},
+	}); err != nil {
+		t.Fatalf("WriteConfig() error = %v", err)
+	}
+
+	withWorkingDir(t, repoDir, func() {
+		stdout, stderr := captureOutput(t, func() {
+			if got := Run([]string{"sync"}); got != 0 {
+				t.Fatalf("Run() code = %d, want %d", got, 0)
+			}
+		})
+
+		if stdout != "no artifacts configured\n" {
+			t.Fatalf("stdout = %q, want %q", stdout, "no artifacts configured\n")
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+	})
+}
+
 func captureOutput(t *testing.T, fn func()) (string, string) {
 	t.Helper()
 
@@ -205,4 +293,47 @@ func newFakeEditor(t *testing.T, dir, content string) string {
 		t.Fatalf("write fake editor: %v", err)
 	}
 	return path
+}
+
+func newGitRepoForSync(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.name", "Verti Test")
+	runGit(t, dir, "config", "user.email", "verti-test@example.com")
+
+	writeTestFile(t, filepath.Join(dir, "README.md"), "# test repo\n")
+	runGit(t, dir, "add", "README.md")
+	runGit(t, dir, "commit", "-m", "chore: initial files")
+
+	return dir
+}
+
+func gitRevParse(t *testing.T, dir string, rev string) string {
+	t.Helper()
+	return runGit(t, dir, "rev-parse", rev)
+}
+
+func runGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, string(out))
+	}
+	return string(bytes.TrimSpace(out))
+}
+
+func writeTestFile(t *testing.T, path string, content string) {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", path, err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
 }
