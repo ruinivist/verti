@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -54,20 +55,63 @@ func TestRun(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stdout, stderr := captureOutput(t, func() {
-				if got := Run(tt.args); got != tt.wantCode {
-					t.Fatalf("Run() code = %d, want %d", got, tt.wantCode)
-				}
-			})
+			run := func() {
+				stdout, stderr := captureOutput(t, func() {
+					if got := Run(tt.args); got != tt.wantCode {
+						t.Fatalf("Run() code = %d, want %d", got, tt.wantCode)
+					}
+				})
 
-			if stdout != tt.wantOut {
-				t.Fatalf("stdout = %q, want %q", stdout, tt.wantOut)
+				if stdout != tt.wantOut {
+					t.Fatalf("stdout = %q, want %q", stdout, tt.wantOut)
+				}
+				if stderr != tt.wantErr {
+					t.Fatalf("stderr = %q, want %q", stderr, tt.wantErr)
+				}
 			}
-			if stderr != tt.wantErr {
-				t.Fatalf("stderr = %q, want %q", stderr, tt.wantErr)
+
+			if tt.name == "init" {
+				repoDir := t.TempDir()
+				if err := os.MkdirAll(filepath.Join(repoDir, ".git", "hooks"), 0o755); err != nil {
+					t.Fatalf("mkdir repo: %v", err)
+				}
+				withWorkingDir(t, repoDir, run)
+				return
 			}
+
+			run()
 		})
 	}
+}
+
+func TestRunInitExecution(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoDir, ".git", "hooks"), 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+
+	withWorkingDir(t, repoDir, func() {
+		stdout, stderr := captureOutput(t, func() {
+			if got := Run([]string{"init"}); got != 0 {
+				t.Fatalf("Run() code = %d, want %d", got, 0)
+			}
+		})
+
+		if stdout != "init\n" {
+			t.Fatalf("stdout = %q, want %q", stdout, "init\n")
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+
+		config, err := os.ReadFile(filepath.Join(repoDir, ".git", "verti.toml"))
+		if err != nil {
+			t.Fatalf("read config: %v", err)
+		}
+		if !bytes.Contains(config, []byte("artifacts = []\n")) {
+			t.Fatalf("config missing artifacts = []: %q", string(config))
+		}
+	})
 }
 
 func captureOutput(t *testing.T, fn func()) (string, string) {
@@ -120,4 +164,23 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 	}
 
 	return stdoutBuf.String(), stderrBuf.String()
+}
+
+func withWorkingDir(t *testing.T, dir string, fn func()) {
+	t.Helper()
+
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir %s: %v", dir, err)
+	}
+	defer func() {
+		if err := os.Chdir(prev); err != nil {
+			t.Fatalf("restore dir: %v", err)
+		}
+	}()
+
+	fn()
 }

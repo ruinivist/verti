@@ -1,0 +1,50 @@
+#!/bin/sh
+
+# Git invokes the reference-transaction hook for multiple phases.
+# We only want to act after refs have been fully updated.
+state="$1"
+if [ "$state" != "committed" ]; then
+  exit 0
+fi
+
+# Rebase updates refs in a way that can replay multiple intermediate states.
+# Skip HEAD-based triggering during a rebase to avoid noisy or misleading syncs.
+in_rebase=0
+if [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
+  in_rebase=1
+fi
+
+# Git represents a missing ref with the all-zero object ID.
+# We use that to ignore creations/deletions where this hook should not snapshot.
+zero=0000000000000000000000000000000000000000
+trigger=0
+
+# stdin contains one ref update per line: "<old> <new> <ref>".
+# Trigger on:
+# 1. HEAD updates outside rebase, which covers normal commit movement.
+# 2. Branch-to-branch updates, which covers merges and similar completed ref moves.
+while IFS=' ' read -r old new ref; do
+  case "$ref" in
+    HEAD)
+      if [ "$in_rebase" -ne 1 ] && [ "$new" != "$zero" ]; then
+        trigger=1
+        break
+      fi
+      ;;
+    refs/heads/*)
+      if [ "$old" != "$zero" ] && [ "$new" != "$zero" ]; then
+        trigger=1
+        break
+      fi
+      ;;
+  esac
+done
+
+# Ignore transactions that do not represent a meaningful completed commit movement.
+if [ "$trigger" -ne 1 ]; then
+  exit 0
+fi
+
+# Run the Verti sync path after Git has finalized the ref update.
+printf "Applying verti artifact hook...\n"
+{{printf "%q" .ExecutablePath}} sync
