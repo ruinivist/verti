@@ -3,6 +3,7 @@ set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 test_repo="$repo_root/test-repo"
+verti_bin="${VERTI_BIN:-$repo_root/build/verti}"
 
 rm -rf "$test_repo"
 mkdir -p "$test_repo"
@@ -19,7 +20,7 @@ git -C "$test_repo" add README.md
 git -C "$test_repo" commit -m "chore: initial files"
 
 printf "\n== init verti ==\n"
-(cd "$test_repo" && verti init)
+(cd "$test_repo" && "$verti_bin" init)
 
 printf "\n== build main history ==\n"
 printf "main update 1\n" >> "$test_repo/README.md"

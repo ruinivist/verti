@@ -1,7 +1,10 @@
 .PHONY: build test-repo
 
-build:
-	go build -o verti .
+BIN := build/verti
 
-test-repo:
+build:
+	mkdir -p build
+	go build -o $(BIN) .
+
+test-repo: build
 	./scripts/test-repo.sh

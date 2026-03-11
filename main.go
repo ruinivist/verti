@@ -55,7 +55,13 @@ func runInit() {
 		}
 	}
 
-	if err := writeReferenceTransactionHook(); err != nil {
+	exePath, err := os.Executable()
+	if err != nil {
+		fmt.Printf("failed to resolve executable: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := writeReferenceTransactionHook(exePath); err != nil {
 		fmt.Printf("failed to write hook: %v\n", err)
 		os.Exit(1)
 	}
@@ -142,8 +148,8 @@ func ensureGitDir() error {
 	return nil
 }
 
-func writeReferenceTransactionHook() error {
-	content := `#!/bin/sh
+func writeReferenceTransactionHook(exePath string) error {
+	content := fmt.Sprintf(`#!/bin/sh
 state="$1"
 if [ "$state" != "committed" ]; then
   exit 0
@@ -178,8 +184,8 @@ if [ "$trigger" -ne 1 ]; then
 fi
 
 printf "reference-transaction committed ref update\n"
-verti sync
-`
+"%s" sync
+`, exePath)
 	return os.WriteFile(hookPath, []byte(content), 0o755)
 }
 
