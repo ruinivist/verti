@@ -43,7 +43,7 @@ func Sync(cfg verticonfig.Config) error {
 		if err := restoreArtifacts(snapshotDir, artifacts); err != nil {
 			return err
 		}
-		output.Printf("restore %s\n", head)
+		output.Printf("Restored artifacts at %s\n", head)
 		return nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
@@ -68,7 +68,7 @@ func Sync(cfg verticonfig.Config) error {
 		return fmt.Errorf("failed to finalize snapshot: %v", err)
 	}
 
-	output.Printf("Artifacts at snapshot %s\n", head)
+	output.Printf("Created artifacts for %s\n", head)
 	return nil
 }
 
