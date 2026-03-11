@@ -28,6 +28,10 @@ func Sync(cfg verticonfig.Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to get head: %v", err)
 	}
+	headDisplay, err := gitrepo.HeadDisplay()
+	if err != nil {
+		return fmt.Errorf("failed to get head display: %v", err)
+	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -43,7 +47,7 @@ func Sync(cfg verticonfig.Config) error {
 		if err := restoreArtifacts(snapshotDir, artifacts); err != nil {
 			return err
 		}
-		output.Printf("Restored artifacts at %s\n", head)
+		output.Printf("Restored artifacts at %s\n", headDisplay)
 		return nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
@@ -68,7 +72,7 @@ func Sync(cfg verticonfig.Config) error {
 		return fmt.Errorf("failed to finalize snapshot: %v", err)
 	}
 
-	output.Printf("Created artifacts for %s\n", head)
+	output.Printf("Created artifacts for %s\n", headDisplay)
 	return nil
 }
 

@@ -23,3 +23,11 @@ func Head() (string, error) {
 	}
 	return strings.TrimSpace(string(out)), nil
 }
+
+func HeadDisplay() (string, error) {
+	out, err := exec.Command("git", "show", "-s", "--format=%s [%h]", "HEAD").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}

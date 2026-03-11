@@ -25,14 +25,15 @@ func TestSyncSnapshotsAndRestoresConfiguredArtifacts(t *testing.T) {
 	testutil.WriteFile(t, artifactPath, "snapshot body\n")
 
 	head := testutil.GitRevParse(t, repoDir, "HEAD")
+	headDisplay := testutil.RunGit(t, repoDir, "show", "-s", "--format=%s [%h]", "HEAD")
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		stdout, stderr, err := runSyncAndCapture(t, cfg)
 		if err != nil {
 			t.Fatalf("Sync() error = %v", err)
 		}
-		if stdout != prefixed("Created artifacts for "+head+"\n") {
-			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Created artifacts for "+head+"\n"))
+		if stdout != prefixed("Created artifacts for "+headDisplay+"\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Created artifacts for "+headDisplay+"\n"))
 		}
 		if stderr != "" {
 			t.Fatalf("stderr = %q, want empty", stderr)
@@ -44,8 +45,8 @@ func TestSyncSnapshotsAndRestoresConfiguredArtifacts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Sync() error = %v", err)
 		}
-		if stdout != prefixed("Restored artifacts at "+head+"\n") {
-			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Restored artifacts at "+head+"\n"))
+		if stdout != prefixed("Restored artifacts at "+headDisplay+"\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Restored artifacts at "+headDisplay+"\n"))
 		}
 		if stderr != "" {
 			t.Fatalf("stderr = %q, want empty", stderr)
@@ -94,14 +95,15 @@ func TestSyncSnapshotsNewHeadWithNestedArtifact(t *testing.T) {
 	testutil.WriteFile(t, artifactPath, "version two\n")
 
 	head := testutil.GitRevParse(t, repoDir, "HEAD")
+	headDisplay := testutil.RunGit(t, repoDir, "show", "-s", "--format=%s [%h]", "HEAD")
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		stdout, stderr, err := runSyncAndCapture(t, cfg)
 		if err != nil {
 			t.Fatalf("Sync() error = %v", err)
 		}
-		if stdout != prefixed("Created artifacts for "+head+"\n") {
-			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Created artifacts for "+head+"\n"))
+		if stdout != prefixed("Created artifacts for "+headDisplay+"\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Created artifacts for "+headDisplay+"\n"))
 		}
 		if stderr != "" {
 			t.Fatalf("stderr = %q, want empty", stderr)
