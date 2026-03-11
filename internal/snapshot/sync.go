@@ -9,6 +9,7 @@ import (
 
 	verticonfig "verti/internal/config"
 	"verti/internal/gitrepo"
+	"verti/internal/output"
 )
 
 const storageSubdir = ".verti/repos"
@@ -19,7 +20,7 @@ func Sync(cfg verticonfig.Config) error {
 		return err
 	}
 	if len(artifacts) == 0 {
-		fmt.Println("no artifacts configured")
+		output.Println("no artifacts configured")
 		return nil
 	}
 
@@ -42,7 +43,7 @@ func Sync(cfg verticonfig.Config) error {
 		if err := restoreArtifacts(snapshotDir, artifacts); err != nil {
 			return err
 		}
-		fmt.Printf("restore %s\n", head)
+		output.Printf("restore %s\n", head)
 		return nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
@@ -67,7 +68,7 @@ func Sync(cfg verticonfig.Config) error {
 		return fmt.Errorf("failed to finalize snapshot: %v", err)
 	}
 
-	fmt.Printf("snapshot %s\n", head)
+	output.Printf("Artifacts at snapshot %s\n", head)
 	return nil
 }
 

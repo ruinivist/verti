@@ -1,20 +1,20 @@
 package cmd
 
 import (
-	"fmt"
 	"strings"
 
+	"verti/internal/output"
 	"verti/internal/verti"
 )
 
 func runSync(args []string) int {
 	if len(args) != 0 {
-		fmt.Printf("unknown sync option: %s\n", strings.Join(args, " "))
+		output.Printf("unknown sync option: %s\n", strings.Join(args, " "))
 		return 1
 	}
 
 	if err := verti.Sync(); err != nil {
-		fmt.Printf("%v\n", err)
+		output.Printf("%v\n", err)
 		return 1
 	}
 

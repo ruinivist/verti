@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	verticonfig "verti/internal/config"
+	"verti/internal/output"
 	"verti/internal/testutil"
 )
 
@@ -21,31 +22,31 @@ func TestRun(t *testing.T) {
 	}{
 		{
 			name:     "no args",
-			wantOut:  "unknown command\n",
+			wantOut:  prefixed("unknown command\n"),
 			wantCode: 1,
 		},
 		{
 			name:     "init",
 			args:     []string{"init"},
-			wantOut:  "init\n",
+			wantOut:  prefixed("init\n"),
 			wantCode: 0,
 		},
 		{
 			name:     "unknown command",
 			args:     []string{"wat"},
-			wantOut:  "unknown command: wat\n",
+			wantOut:  prefixed("unknown command: wat\n"),
 			wantCode: 1,
 		},
 		{
 			name:     "sync extra",
 			args:     []string{"sync", "extra", "bits"},
-			wantOut:  "unknown sync option: extra bits\n",
+			wantOut:  prefixed("unknown sync option: extra bits\n"),
 			wantCode: 1,
 		},
 		{
 			name:     "init extra",
 			args:     []string{"init", "extra"},
-			wantOut:  "unknown init option: extra\n",
+			wantOut:  prefixed("unknown init option: extra\n"),
 			wantCode: 1,
 		},
 	}
@@ -92,8 +93,8 @@ func TestRunInitExecution(t *testing.T) {
 			}
 		})
 
-		if stdout != "init\n" {
-			t.Fatalf("stdout = %q, want %q", stdout, "init\n")
+		if stdout != prefixed("init\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("init\n"))
 		}
 		if stderr != "" {
 			t.Fatalf("stderr = %q, want empty", stderr)
@@ -140,8 +141,8 @@ func TestRunSyncSnapshotAndRestore(t *testing.T) {
 			}
 		})
 
-		if stdout != "snapshot "+head+"\n" {
-			t.Fatalf("stdout = %q, want %q", stdout, "snapshot "+head+"\n")
+		if stdout != prefixed("snapshot "+head+"\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("snapshot "+head+"\n"))
 		}
 		if stderr != "" {
 			t.Fatalf("stderr = %q, want empty", stderr)
@@ -155,8 +156,8 @@ func TestRunSyncSnapshotAndRestore(t *testing.T) {
 			}
 		})
 
-		if stdout != "restore "+head+"\n" {
-			t.Fatalf("stdout = %q, want %q", stdout, "restore "+head+"\n")
+		if stdout != prefixed("restore "+head+"\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("restore "+head+"\n"))
 		}
 		if stderr != "" {
 			t.Fatalf("stderr = %q, want empty", stderr)
@@ -199,8 +200,8 @@ func TestRunSyncNoArtifacts(t *testing.T) {
 			}
 		})
 
-		if stdout != "no artifacts configured\n" {
-			t.Fatalf("stdout = %q, want %q", stdout, "no artifacts configured\n")
+		if stdout != prefixed("no artifacts configured\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("no artifacts configured\n"))
 		}
 		if stderr != "" {
 			t.Fatalf("stderr = %q, want empty", stderr)
@@ -258,4 +259,8 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 	}
 
 	return stdoutBuf.String(), stderrBuf.String()
+}
+
+func prefixed(msg string) string {
+	return output.Prefix() + msg
 }

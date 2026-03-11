@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	verticonfig "verti/internal/config"
+	"verti/internal/output"
 	"verti/internal/testutil"
 )
 
@@ -30,8 +31,8 @@ func TestSyncSnapshotsAndRestoresConfiguredArtifacts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Sync() error = %v", err)
 		}
-		if stdout != "snapshot "+head+"\n" {
-			t.Fatalf("stdout = %q, want %q", stdout, "snapshot "+head+"\n")
+		if stdout != prefixed("snapshot "+head+"\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("snapshot "+head+"\n"))
 		}
 		if stderr != "" {
 			t.Fatalf("stderr = %q, want empty", stderr)
@@ -43,8 +44,8 @@ func TestSyncSnapshotsAndRestoresConfiguredArtifacts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Sync() error = %v", err)
 		}
-		if stdout != "restore "+head+"\n" {
-			t.Fatalf("stdout = %q, want %q", stdout, "restore "+head+"\n")
+		if stdout != prefixed("restore "+head+"\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("restore "+head+"\n"))
 		}
 		if stderr != "" {
 			t.Fatalf("stderr = %q, want empty", stderr)
@@ -99,8 +100,8 @@ func TestSyncSnapshotsNewHeadWithNestedArtifact(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Sync() error = %v", err)
 		}
-		if stdout != "snapshot "+head+"\n" {
-			t.Fatalf("stdout = %q, want %q", stdout, "snapshot "+head+"\n")
+		if stdout != prefixed("snapshot "+head+"\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("snapshot "+head+"\n"))
 		}
 		if stderr != "" {
 			t.Fatalf("stderr = %q, want empty", stderr)
@@ -193,8 +194,8 @@ func TestSyncNoArtifactsWarns(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Sync() error = %v", err)
 		}
-		if stdout != "no artifacts configured\n" {
-			t.Fatalf("stdout = %q, want %q", stdout, "no artifacts configured\n")
+		if stdout != prefixed("no artifacts configured\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("no artifacts configured\n"))
 		}
 		if stderr != "" {
 			t.Fatalf("stderr = %q, want empty", stderr)
@@ -272,4 +273,8 @@ func runSyncAndCapture(t *testing.T, cfg verticonfig.Config) (string, string, er
 	}
 
 	return stdoutBuf.String(), stderrBuf.String(), err
+}
+
+func prefixed(msg string) string {
+	return output.Prefix() + msg
 }
