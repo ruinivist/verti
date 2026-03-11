@@ -1,4 +1,4 @@
-package verti
+package config
 
 import (
 	"bytes"

@@ -1,4 +1,4 @@
-package verti
+package gitrepo
 
 import (
 	"bytes"
@@ -8,15 +8,7 @@ import (
 	"strings"
 )
 
-func ensureGitDir() error {
-	info, err := os.Stat(".git")
-	if err != nil || !info.IsDir() {
-		return errors.New("missing .git")
-	}
-	return nil
-}
-
-func gitExcludeArtifacts(path string, artifacts []string) error {
+func ExcludeArtifacts(path string, artifacts []string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}

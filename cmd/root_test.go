@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
-	"verti/internal/verti"
+	verticonfig "verti/internal/config"
+	"verti/internal/testutil"
 )
 
 func TestRun(t *testing.T) {
@@ -68,13 +68,10 @@ func TestRun(t *testing.T) {
 			}
 
 			if tt.name == "init" {
-				repoDir := t.TempDir()
-				if err := os.MkdirAll(filepath.Join(repoDir, ".git", "hooks"), 0o755); err != nil {
-					t.Fatalf("mkdir repo: %v", err)
-				}
-				t.Setenv("GIT_EDITOR", newFakeEditor(t, repoDir, "#!/bin/sh\nexit 0\n"))
+				repoDir := testutil.NewRepo(t)
+				t.Setenv("GIT_EDITOR", testutil.NewFakeEditor(t, repoDir, "#!/bin/sh\nexit 0\n"))
 				t.Setenv("EDITOR", "")
-				withWorkingDir(t, repoDir, run)
+				testutil.WithWorkingDir(t, repoDir, run)
 				return
 			}
 
@@ -84,14 +81,11 @@ func TestRun(t *testing.T) {
 }
 
 func TestRunInitExecution(t *testing.T) {
-	repoDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repoDir, ".git", "hooks"), 0o755); err != nil {
-		t.Fatalf("mkdir repo: %v", err)
-	}
-	t.Setenv("GIT_EDITOR", newFakeEditor(t, repoDir, "#!/bin/sh\ncat <<'EOF' > \"$1\"\n[verti]\nrepo_id = \"repo-cmd\"\nartifacts = [\"test.md\", \"out/report.txt\"]\nEOF\n"))
+	repoDir := testutil.NewRepo(t)
+	t.Setenv("GIT_EDITOR", testutil.NewFakeEditor(t, repoDir, "#!/bin/sh\ncat <<'EOF' > \"$1\"\n[verti]\nrepo_id = \"repo-cmd\"\nartifacts = [\"test.md\", \"out/report.txt\"]\nEOF\n"))
 	t.Setenv("EDITOR", "")
 
-	withWorkingDir(t, repoDir, func() {
+	testutil.WithWorkingDir(t, repoDir, func() {
 		stdout, stderr := captureOutput(t, func() {
 			if got := Run([]string{"init"}); got != 0 {
 				t.Fatalf("Run() code = %d, want %d", got, 0)
@@ -124,22 +118,22 @@ func TestRunInitExecution(t *testing.T) {
 }
 
 func TestRunSyncSnapshotAndRestore(t *testing.T) {
-	repoDir := newGitRepoForSync(t)
+	repoDir := testutil.NewGitRepo(t)
 	artifactPath := filepath.Join(repoDir, "test.md")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	if err := verti.WriteConfig(filepath.Join(repoDir, ".git", "verti.toml"), verti.Config{
+	if err := verticonfig.WriteConfig(filepath.Join(repoDir, ".git", "verti.toml"), verticonfig.Config{
 		RepoID:    "repo-cmd-sync",
 		Artifacts: []string{"test.md"},
 	}); err != nil {
 		t.Fatalf("WriteConfig() error = %v", err)
 	}
-	writeTestFile(t, artifactPath, "snapshot body\n")
+	testutil.WriteFile(t, artifactPath, "snapshot body\n")
 
-	head := gitRevParse(t, repoDir, "HEAD")
+	head := testutil.GitRevParse(t, repoDir, "HEAD")
 
-	withWorkingDir(t, repoDir, func() {
+	testutil.WithWorkingDir(t, repoDir, func() {
 		stdout, stderr := captureOutput(t, func() {
 			if got := Run([]string{"sync"}); got != 0 {
 				t.Fatalf("Run() code = %d, want %d", got, 0)
@@ -153,7 +147,7 @@ func TestRunSyncSnapshotAndRestore(t *testing.T) {
 			t.Fatalf("stderr = %q, want empty", stderr)
 		}
 
-		writeTestFile(t, artifactPath, "edited body\n")
+		testutil.WriteFile(t, artifactPath, "edited body\n")
 
 		stdout, stderr = captureOutput(t, func() {
 			if got := Run([]string{"sync"}); got != 0 {
@@ -188,17 +182,17 @@ func TestRunSyncSnapshotAndRestore(t *testing.T) {
 }
 
 func TestRunSyncNoArtifacts(t *testing.T) {
-	repoDir := newGitRepoForSync(t)
+	repoDir := testutil.NewGitRepo(t)
 	t.Setenv("HOME", t.TempDir())
 
-	if err := verti.WriteConfig(filepath.Join(repoDir, ".git", "verti.toml"), verti.Config{
+	if err := verticonfig.WriteConfig(filepath.Join(repoDir, ".git", "verti.toml"), verticonfig.Config{
 		RepoID:    "repo-cmd-empty",
 		Artifacts: []string{},
 	}); err != nil {
 		t.Fatalf("WriteConfig() error = %v", err)
 	}
 
-	withWorkingDir(t, repoDir, func() {
+	testutil.WithWorkingDir(t, repoDir, func() {
 		stdout, stderr := captureOutput(t, func() {
 			if got := Run([]string{"sync"}); got != 0 {
 				t.Fatalf("Run() code = %d, want %d", got, 0)
@@ -264,76 +258,4 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 	}
 
 	return stdoutBuf.String(), stderrBuf.String()
-}
-
-func withWorkingDir(t *testing.T, dir string, fn func()) {
-	t.Helper()
-
-	prev, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("chdir %s: %v", dir, err)
-	}
-	defer func() {
-		if err := os.Chdir(prev); err != nil {
-			t.Fatalf("restore dir: %v", err)
-		}
-	}()
-
-	fn()
-}
-
-func newFakeEditor(t *testing.T, dir, content string) string {
-	t.Helper()
-
-	path := filepath.Join(dir, "fake-editor")
-	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
-		t.Fatalf("write fake editor: %v", err)
-	}
-	return path
-}
-
-func newGitRepoForSync(t *testing.T) string {
-	t.Helper()
-
-	dir := t.TempDir()
-	runGit(t, dir, "init")
-	runGit(t, dir, "config", "user.name", "Verti Test")
-	runGit(t, dir, "config", "user.email", "verti-test@example.com")
-
-	writeTestFile(t, filepath.Join(dir, "README.md"), "# test repo\n")
-	runGit(t, dir, "add", "README.md")
-	runGit(t, dir, "commit", "-m", "chore: initial files")
-
-	return dir
-}
-
-func gitRevParse(t *testing.T, dir string, rev string) string {
-	t.Helper()
-	return runGit(t, dir, "rev-parse", rev)
-}
-
-func runGit(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v failed: %v\n%s", args, err, string(out))
-	}
-	return string(bytes.TrimSpace(out))
-}
-
-func writeTestFile(t *testing.T, path string, content string) {
-	t.Helper()
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("MkdirAll(%q) error = %v", path, err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("WriteFile(%q) error = %v", path, err)
-	}
 }

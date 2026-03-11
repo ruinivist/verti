@@ -1,4 +1,4 @@
-package verti
+package editor
 
 import (
 	"os"
@@ -91,8 +91,8 @@ func TestOpenEditorTreatsEnvAsCommandOnly(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	if err := openEditor(config); err == nil {
-		t.Fatal("openEditor() error = nil, want error")
+	if err := Open(config); err == nil {
+		t.Fatal("Open() error = nil, want error")
 	}
 }
 

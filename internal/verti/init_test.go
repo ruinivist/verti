@@ -5,15 +5,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	verticonfig "verti/internal/config"
+	"verti/internal/testutil"
 )
 
 func TestInitCreatesConfigAndHook(t *testing.T) {
-	repoDir := newTestRepo(t)
-	editor := newFakeEditor(t, repoDir, "#!/bin/sh\ncat <<'EOF' > \"$1\"\n[verti]\nrepo_id = \"repo-1\"\nartifacts = [\"test.md\", \"docs/output\"]\nEOF\n")
+	repoDir := testutil.NewRepo(t)
+	editor := testutil.NewFakeEditor(t, repoDir, "#!/bin/sh\ncat <<'EOF' > \"$1\"\n[verti]\nrepo_id = \"repo-1\"\nartifacts = [\"test.md\", \"docs/output\"]\nEOF\n")
 	t.Setenv("GIT_EDITOR", editor)
 	t.Setenv("EDITOR", "")
 
-	withWorkingDir(t, repoDir, func() {
+	testutil.WithWorkingDir(t, repoDir, func() {
 		if err := Init("/tmp/verti"); err != nil {
 			t.Fatalf("Init() error = %v", err)
 		}
@@ -34,7 +37,7 @@ func TestInitCreatesConfigAndHook(t *testing.T) {
 			t.Fatalf("config missing edited artifacts: %q", text)
 		}
 
-		cfg, err := ReadConfig(filepath.Join(repoDir, configPath))
+		cfg, err := verticonfig.ReadConfig(filepath.Join(repoDir, configPath))
 		if err != nil {
 			t.Fatalf("ReadConfig() error = %v", err)
 		}
@@ -64,13 +67,13 @@ func TestInitCreatesConfigAndHook(t *testing.T) {
 }
 
 func TestInitPreservesExistingConfigAndRewritesHook(t *testing.T) {
-	repoDir := newTestRepo(t)
+	repoDir := testutil.NewRepo(t)
 	existingConfig := "[verti]\nrepo_id = \"existing\"\nartifacts = [\"foo\"]\n"
-	editor := newFakeEditor(t, repoDir, "#!/bin/sh\nexit 0\n")
+	editor := testutil.NewFakeEditor(t, repoDir, "#!/bin/sh\nexit 0\n")
 	t.Setenv("GIT_EDITOR", editor)
 	t.Setenv("EDITOR", "")
 
-	withWorkingDir(t, repoDir, func() {
+	testutil.WithWorkingDir(t, repoDir, func() {
 		if err := os.WriteFile(configPath, []byte(existingConfig), 0o644); err != nil {
 			t.Fatalf("write config: %v", err)
 		}
@@ -112,12 +115,12 @@ func TestInitPreservesExistingConfigAndRewritesHook(t *testing.T) {
 }
 
 func TestInitAppendsOnlyNewArtifactsOnRepeat(t *testing.T) {
-	repoDir := newTestRepo(t)
-	firstEditor := newFakeEditor(t, repoDir, "#!/bin/sh\ncat <<'EOF' > \"$1\"\n[verti]\nrepo_id = \"repo-repeat\"\nartifacts = [\"foo\", \"bar\"]\nEOF\n")
-	secondEditor := newFakeEditor(t, filepath.Join(repoDir, "second"), "#!/bin/sh\ncat <<'EOF' > \"$1\"\n[verti]\nrepo_id = \"repo-repeat\"\nartifacts = [\"foo\", \"bar\", \"baz\"]\nEOF\n")
+	repoDir := testutil.NewRepo(t)
+	firstEditor := testutil.NewFakeEditor(t, repoDir, "#!/bin/sh\ncat <<'EOF' > \"$1\"\n[verti]\nrepo_id = \"repo-repeat\"\nartifacts = [\"foo\", \"bar\"]\nEOF\n")
+	secondEditor := testutil.NewFakeEditor(t, filepath.Join(repoDir, "second"), "#!/bin/sh\ncat <<'EOF' > \"$1\"\n[verti]\nrepo_id = \"repo-repeat\"\nartifacts = [\"foo\", \"bar\", \"baz\"]\nEOF\n")
 	t.Setenv("EDITOR", "")
 
-	withWorkingDir(t, repoDir, func() {
+	testutil.WithWorkingDir(t, repoDir, func() {
 		t.Setenv("GIT_EDITOR", firstEditor)
 		if err := Init("/tmp/verti"); err != nil {
 			t.Fatalf("first Init() error = %v", err)
@@ -141,7 +144,7 @@ func TestInitAppendsOnlyNewArtifactsOnRepeat(t *testing.T) {
 func TestInitOutsideGitRepoFails(t *testing.T) {
 	dir := t.TempDir()
 
-	withWorkingDir(t, dir, func() {
+	testutil.WithWorkingDir(t, dir, func() {
 		err := Init("/tmp/verti")
 		if err == nil {
 			t.Fatal("Init() error = nil, want error")
@@ -150,49 +153,4 @@ func TestInitOutsideGitRepoFails(t *testing.T) {
 			t.Fatalf("Init() error = %q, want %q", err.Error(), "not a git repository")
 		}
 	})
-}
-
-func newTestRepo(t *testing.T) string {
-	t.Helper()
-
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".git", "hooks"), 0o755); err != nil {
-		t.Fatalf("mkdir repo hooks: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(dir, ".git", "info"), 0o755); err != nil {
-		t.Fatalf("mkdir repo: %v", err)
-	}
-	return dir
-}
-
-func newFakeEditor(t *testing.T, dir, content string) string {
-	t.Helper()
-
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("mkdir fake editor dir: %v", err)
-	}
-	path := filepath.Join(dir, "fake-editor")
-	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
-		t.Fatalf("write fake editor: %v", err)
-	}
-	return path
-}
-
-func withWorkingDir(t *testing.T, dir string, fn func()) {
-	t.Helper()
-
-	prev, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("chdir %s: %v", dir, err)
-	}
-	defer func() {
-		if err := os.Chdir(prev); err != nil {
-			t.Fatalf("restore dir: %v", err)
-		}
-	}()
-
-	fn()
 }

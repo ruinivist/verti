@@ -1,4 +1,4 @@
-package verti
+package editor
 
 import (
 	"errors"
@@ -6,7 +6,7 @@ import (
 	"os/exec"
 )
 
-func openEditor(path string) error {
+func Open(path string) error {
 	editor, err := resolveEditor()
 	if err != nil {
 		return err

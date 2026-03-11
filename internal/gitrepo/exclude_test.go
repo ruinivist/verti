@@ -1,4 +1,4 @@
-package verti
+package gitrepo
 
 import (
 	"os"
@@ -12,8 +12,8 @@ func TestAppendMissingExcludes(t *testing.T) {
 		t.Fatalf("write exclude: %v", err)
 	}
 
-	if err := gitExcludeArtifacts(path, []string{"foo", "bar", "dir/baz"}); err != nil {
-		t.Fatalf("gitExcludeArtifacts() error = %v", err)
+	if err := ExcludeArtifacts(path, []string{"foo", "bar", "dir/baz"}); err != nil {
+		t.Fatalf("ExcludeArtifacts() error = %v", err)
 	}
 
 	got, err := os.ReadFile(path)
