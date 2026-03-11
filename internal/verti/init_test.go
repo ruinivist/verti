@@ -34,6 +34,17 @@ func TestInitCreatesConfigAndHook(t *testing.T) {
 			t.Fatalf("config should not mention test.md: %q", text)
 		}
 
+		cfg, err := ReadConfig(filepath.Join(repoDir, configPath))
+		if err != nil {
+			t.Fatalf("ReadConfig() error = %v", err)
+		}
+		if cfg.RepoID == "" {
+			t.Fatal("ReadConfig() RepoID = empty, want non-empty")
+		}
+		if len(cfg.Artifacts) != 0 {
+			t.Fatalf("ReadConfig() Artifacts = %#v, want empty", cfg.Artifacts)
+		}
+
 		hook, err := os.ReadFile(filepath.Join(repoDir, hookPath))
 		if err != nil {
 			t.Fatalf("read hook: %v", err)
