@@ -75,6 +75,8 @@ func TestRun(t *testing.T) {
 				if err := os.MkdirAll(filepath.Join(repoDir, ".git", "hooks"), 0o755); err != nil {
 					t.Fatalf("mkdir repo: %v", err)
 				}
+				t.Setenv("GIT_EDITOR", newFakeEditor(t, repoDir, "#!/bin/sh\nexit 0\n"))
+				t.Setenv("EDITOR", "")
 				withWorkingDir(t, repoDir, run)
 				return
 			}
@@ -89,6 +91,8 @@ func TestRunInitExecution(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repoDir, ".git", "hooks"), 0o755); err != nil {
 		t.Fatalf("mkdir repo: %v", err)
 	}
+	t.Setenv("GIT_EDITOR", newFakeEditor(t, repoDir, "#!/bin/sh\ncat <<'EOF' > \"$1\"\n[verti]\nrepo_id = \"repo-cmd\"\nartifacts = [\"test.md\", \"out/report.txt\"]\nEOF\n"))
+	t.Setenv("EDITOR", "")
 
 	withWorkingDir(t, repoDir, func() {
 		stdout, stderr := captureOutput(t, func() {
@@ -108,8 +112,16 @@ func TestRunInitExecution(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read config: %v", err)
 		}
-		if !bytes.Contains(config, []byte("artifacts = []\n")) {
-			t.Fatalf("config missing artifacts = []: %q", string(config))
+		if !bytes.Contains(config, []byte("repo_id = \"repo-cmd\"\n")) || !bytes.Contains(config, []byte("artifacts = [\"test.md\", \"out/report.txt\"]\n")) {
+			t.Fatalf("config missing edited content: %q", string(config))
+		}
+
+		exclude, err := os.ReadFile(filepath.Join(repoDir, ".git", "info", "exclude"))
+		if err != nil {
+			t.Fatalf("read exclude: %v", err)
+		}
+		if string(exclude) != "test.md\nout/report.txt\n" {
+			t.Fatalf("exclude = %q, want %q", string(exclude), "test.md\nout/report.txt\n")
 		}
 	})
 }
@@ -183,4 +195,14 @@ func withWorkingDir(t *testing.T, dir string, fn func()) {
 	}()
 
 	fn()
+}
+
+func newFakeEditor(t *testing.T, dir, content string) string {
+	t.Helper()
+
+	path := filepath.Join(dir, "fake-editor")
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake editor: %v", err)
+	}
+	return path
 }

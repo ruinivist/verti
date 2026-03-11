@@ -1,7 +1,9 @@
 package verti
 
 import (
+	"bytes"
 	"errors"
+	"os"
 
 	"github.com/BurntSushi/toml"
 )
@@ -30,17 +32,39 @@ func ReadConfig(path string) (Config, error) {
 	if !meta.IsDefined("verti") {
 		return Config{}, errors.New("missing [verti] config")
 	}
-	if raw.Verti.RepoID == "" {
-		return Config{}, errors.New("empty repo_id")
-	}
 
-	cfg := Config{
+	return normalizeConfig(Config{
 		RepoID:    raw.Verti.RepoID,
 		Artifacts: raw.Verti.Artifacts,
+	})
+}
+
+func WriteConfig(path string, cfg Config) error {
+	cfg, err := normalizeConfig(cfg)
+	if err != nil {
+		return err
+	}
+
+	var buf bytes.Buffer
+	err = toml.NewEncoder(&buf).Encode(tomlConfig{
+		Verti: tomlVertiConfig{
+			RepoID:    cfg.RepoID,
+			Artifacts: cfg.Artifacts,
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, buf.Bytes(), 0o644)
+}
+
+func normalizeConfig(cfg Config) (Config, error) {
+	if cfg.RepoID == "" {
+		return Config{}, errors.New("empty repo_id")
 	}
 	if cfg.Artifacts == nil {
 		cfg.Artifacts = []string{}
 	}
-
 	return cfg, nil
 }
