@@ -1,4 +1,27 @@
-verti
+# Verti - Versioned Artifacts
+
+## Usecase
+
+Artifacts = notes, scratch code, documents etc. that are created as part of coding, research, learning etc.\
+Often closely tied to the project, I would want them to live in the same repository, except I don't want them to be referred in any manner by git.\
+Not even in a `.gitignore`.
+
+What I do want is to have them versioned, so I can go back to a previous version when as ideas evolve or some branches get abandoned, or recreated entirely.
+
+## How it works
+
+Verti uses githooks - post-commit and reference-transaction to snapshot-or-restore the artifacts as defined via a `verti.toml` config file.\
+The snapshots are stored in `~/.verti` directory in a deduplicated manifest-object store manner.\
+The files are ignored by git by adding them to `.git/info/exclude` file automatically by verti.
+
+## How to use?
+
+- Clone the repo
+- `make build` to build the binary in `./build/verti`
+- add it to path
+- `verti init`. This opens the repo specific `verti.toml` config file. Can rerun to update the config/hooks as needed.
+
+# Dev notes
 
 ## Trying out
 
