@@ -262,5 +262,5 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 }
 
 func prefixed(msg string) string {
-	return output.Prefix() + msg
+	return output.Format(msg)
 }

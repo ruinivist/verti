@@ -278,5 +278,5 @@ func runSyncAndCapture(t *testing.T, cfg verticonfig.Config) (string, string, er
 }
 
 func prefixed(msg string) string {
-	return output.Prefix() + msg
+	return output.Format(msg)
 }
