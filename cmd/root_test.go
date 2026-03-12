@@ -2,6 +2,9 @@ package cmd
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -133,6 +136,8 @@ func TestRunSyncSnapshotAndRestore(t *testing.T) {
 	testutil.WriteFile(t, artifactPath, "snapshot body\n")
 
 	head := testutil.GitRevParse(t, repoDir, "HEAD")
+	headDisplay := testutil.RunGit(t, repoDir, "show", "-s", "--format=%s [%h]", "HEAD")
+	wantHash := sha256Hex([]byte("snapshot body\n"))
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		stdout, stderr := captureOutput(t, func() {
@@ -141,8 +146,8 @@ func TestRunSyncSnapshotAndRestore(t *testing.T) {
 			}
 		})
 
-		if stdout != prefixed("Artifacts at snapshot "+head+"\n") {
-			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Artifacts at snapshot "+head+"\n"))
+		if stdout != prefixed("Created artifacts for "+headDisplay+"\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Created artifacts for "+headDisplay+"\n"))
 		}
 		if stderr != "" {
 			t.Fatalf("stderr = %q, want empty", stderr)
@@ -156,8 +161,8 @@ func TestRunSyncSnapshotAndRestore(t *testing.T) {
 			}
 		})
 
-		if stdout != prefixed("restore "+head+"\n") {
-			t.Fatalf("stdout = %q, want %q", stdout, prefixed("restore "+head+"\n"))
+		if stdout != prefixed("Restored artifacts at "+headDisplay+"\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Restored artifacts at "+headDisplay+"\n"))
 		}
 		if stderr != "" {
 			t.Fatalf("stderr = %q, want empty", stderr)
@@ -172,13 +177,33 @@ func TestRunSyncSnapshotAndRestore(t *testing.T) {
 		t.Fatalf("artifact = %q, want %q", string(content), "snapshot body\n")
 	}
 
-	snapshotPath := filepath.Join(home, ".verti", "repos", "repo-cmd-sync", head, "test.md")
-	snapshot, err := os.ReadFile(snapshotPath)
+	repoStoreDir := filepath.Join(home, ".verti", "repos", "repo-cmd-sync")
+	manifestPath := filepath.Join(repoStoreDir, "manifests", head+".json")
+	manifestContent, err := os.ReadFile(manifestPath)
 	if err != nil {
-		t.Fatalf("read snapshot: %v", err)
+		t.Fatalf("read manifest: %v", err)
 	}
-	if string(snapshot) != "snapshot body\n" {
-		t.Fatalf("snapshot = %q, want %q", string(snapshot), "snapshot body\n")
+
+	var manifest struct {
+		Version   int               `json:"version"`
+		Artifacts map[string]string `json:"artifacts"`
+	}
+	if err := json.Unmarshal(manifestContent, &manifest); err != nil {
+		t.Fatalf("unmarshal manifest: %v", err)
+	}
+	if manifest.Version != 1 {
+		t.Fatalf("manifest version = %d, want 1", manifest.Version)
+	}
+	if got := manifest.Artifacts["test.md"]; got != wantHash {
+		t.Fatalf("manifest hash = %q, want %q", got, wantHash)
+	}
+
+	blob, err := os.ReadFile(filepath.Join(repoStoreDir, "blobs", wantHash))
+	if err != nil {
+		t.Fatalf("read blob: %v", err)
+	}
+	if string(blob) != "snapshot body\n" {
+		t.Fatalf("blob = %q, want %q", string(blob), "snapshot body\n")
 	}
 }
 
@@ -263,4 +288,9 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 
 func prefixed(msg string) string {
 	return output.Format(msg)
+}
+
+func sha256Hex(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])
 }
