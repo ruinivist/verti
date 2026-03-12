@@ -48,12 +48,23 @@ func TestInitCreatesConfigAndHook(t *testing.T) {
 			t.Fatalf("ReadConfig() Artifacts = %#v, want %#v", cfg.Artifacts, []string{"test.md", "docs/output"})
 		}
 
-		hook, err := os.ReadFile(filepath.Join(repoDir, hookPath))
+		hook, err := os.ReadFile(filepath.Join(repoDir, referenceTransactionPath))
 		if err != nil {
-			t.Fatalf("read hook: %v", err)
+			t.Fatalf("read reference-transaction hook: %v", err)
 		}
 		if !strings.Contains(string(hook), "\"/tmp/verti\" sync") {
-			t.Fatalf("hook missing sync invocation: %q", string(hook))
+			t.Fatalf("reference-transaction hook missing sync invocation: %q", string(hook))
+		}
+
+		postCheckoutHook, err := os.ReadFile(filepath.Join(repoDir, postCheckoutHookPath))
+		if err != nil {
+			t.Fatalf("read post-checkout hook: %v", err)
+		}
+		if !strings.Contains(string(postCheckoutHook), "\"/tmp/verti\" sync") {
+			t.Fatalf("post-checkout hook missing sync invocation: %q", string(postCheckoutHook))
+		}
+		if !strings.Contains(string(postCheckoutHook), "if [ \"$old\" != \"$new\" ]; then") {
+			t.Fatalf("post-checkout hook missing same-commit guard: %q", string(postCheckoutHook))
 		}
 
 		exclude, err := os.ReadFile(filepath.Join(repoDir, excludePath))
@@ -77,8 +88,11 @@ func TestInitPreservesExistingConfigAndRewritesHook(t *testing.T) {
 		if err := os.WriteFile(configPath, []byte(existingConfig), 0o644); err != nil {
 			t.Fatalf("write config: %v", err)
 		}
-		if err := os.WriteFile(hookPath, []byte("old hook"), 0o755); err != nil {
-			t.Fatalf("write hook: %v", err)
+		if err := os.WriteFile(referenceTransactionPath, []byte("old hook"), 0o755); err != nil {
+			t.Fatalf("write reference-transaction hook: %v", err)
+		}
+		if err := os.WriteFile(postCheckoutHookPath, []byte("old post-checkout hook"), 0o755); err != nil {
+			t.Fatalf("write post-checkout hook: %v", err)
 		}
 		if err := os.WriteFile(excludePath, []byte("# comment\nfoo\n"), 0o644); err != nil {
 			t.Fatalf("write exclude: %v", err)
@@ -96,12 +110,20 @@ func TestInitPreservesExistingConfigAndRewritesHook(t *testing.T) {
 			t.Fatalf("config changed = %q, want %q", string(gotConfig), existingConfig)
 		}
 
-		gotHook, err := os.ReadFile(hookPath)
+		gotHook, err := os.ReadFile(referenceTransactionPath)
 		if err != nil {
-			t.Fatalf("read hook: %v", err)
+			t.Fatalf("read reference-transaction hook: %v", err)
 		}
 		if !strings.Contains(string(gotHook), "\"/tmp/verti-new\" sync") {
-			t.Fatalf("hook not rewritten: %q", string(gotHook))
+			t.Fatalf("reference-transaction hook not rewritten: %q", string(gotHook))
+		}
+
+		gotPostCheckoutHook, err := os.ReadFile(postCheckoutHookPath)
+		if err != nil {
+			t.Fatalf("read post-checkout hook: %v", err)
+		}
+		if !strings.Contains(string(gotPostCheckoutHook), "\"/tmp/verti-new\" sync") {
+			t.Fatalf("post-checkout hook not rewritten: %q", string(gotPostCheckoutHook))
 		}
 
 		gotExclude, err := os.ReadFile(excludePath)

@@ -1,0 +1,23 @@
+#!/bin/sh
+
+# Git invokes the post-checkout hook after a successful checkout.
+# We only use it for forced same-commit checkouts, such as `git checkout -f`,
+# where no refs move and reference-transaction therefore cannot trigger Verti.
+
+# Note that git checkout -f current_branch triggers verti twice which is fine for me
+old="$1"
+new="$2"
+flag="$3"
+
+# Only handle branch/commit checkouts (`flag=1`), not path checkouts (`flag=0`).
+if [ "$flag" != "1" ]; then
+  exit 0
+fi
+
+# A bare `git checkout -f` resets the worktree to the current HEAD, so old/new match.
+# Branch switches to a different commit are already covered by reference-transaction.
+if [ "$old" != "$new" ]; then
+  exit 0
+fi
+
+{{printf "%q" .ExecutablePath}} sync

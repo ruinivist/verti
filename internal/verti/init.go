@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	configPath  = ".git/verti.toml"
-	hookPath    = ".git/hooks/reference-transaction"
-	excludePath = ".git/info/exclude"
+	configPath               = ".git/verti.toml"
+	referenceTransactionPath = ".git/hooks/reference-transaction"
+	postCheckoutHookPath     = ".git/hooks/post-checkout"
+	excludePath              = ".git/info/exclude"
 )
 
 func Init(exePath string) error {
@@ -35,8 +36,12 @@ func Init(exePath string) error {
 		}
 	}
 
-	if err := gitrepo.WriteReferenceTransactionHook(hookPath, exePath); err != nil {
-		return fmt.Errorf("failed to write hook: %v", err)
+	if err := gitrepo.WriteReferenceTransactionHook(referenceTransactionPath, exePath); err != nil {
+		return fmt.Errorf("failed to write reference-transaction hook: %v", err)
+	}
+
+	if err := gitrepo.WritePostCheckoutHook(postCheckoutHookPath, exePath); err != nil {
+		return fmt.Errorf("failed to write post-checkout hook: %v", err)
 	}
 
 	if err := editor.Open(configPath); err != nil {
