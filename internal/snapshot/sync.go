@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -27,9 +28,21 @@ type manifest struct {
 	Artifacts map[string]string `json:"artifacts"`
 }
 
-type restoreArtifact struct {
-	path string
-	hash string
+type restorePlan struct {
+	targets          []restoreTarget
+	orphanCandidates []orphanCandidate
+}
+
+type restoreTarget struct {
+	path    string
+	hash    string
+	content []byte
+}
+
+type orphanCandidate struct {
+	path    string
+	hash    string
+	content []byte
 }
 
 func Sync(cfg verticonfig.Config) error {
@@ -130,18 +143,11 @@ func snapshotArtifacts(artifacts []string) (manifest, map[string][]byte, []strin
 }
 
 func restoreArtifacts(store store, storedManifest manifest) error {
-	restoreTargets := manifestRestoreArtifacts(storedManifest)
-	if err := validateRestoreInputs(store, restoreTargets); err != nil {
+	plan, err := buildRestorePlan(store, storedManifest)
+	if err != nil {
 		return err
 	}
-
-	for _, artifact := range restoreTargets {
-		if err := copyFile(store.blobPath(artifact.hash), artifact.path); err != nil {
-			return fmt.Errorf("failed to restore artifact %s: %v", artifact.path, err)
-		}
-	}
-
-	return nil
+	return applyRestorePlan(plan)
 }
 
 func expandArtifacts(artifacts []string) ([]string, []string, error) {
@@ -214,21 +220,61 @@ func walkArtifactDir(root string) ([]string, []string, error) {
 	return paths, warnings, nil
 }
 
-func validateRestoreInputs(store store, artifacts []restoreArtifact) error {
-	for _, artifact := range artifacts {
-		if !isValidHash(artifact.hash) {
-			return fmt.Errorf("invalid manifest hash for artifact: %s", artifact.path)
+func buildRestorePlan(store store, storedManifest manifest) (restorePlan, error) {
+	targets := manifestRestoreTargets(storedManifest)
+	plan := restorePlan{
+		targets:          make([]restoreTarget, 0, len(targets)),
+		orphanCandidates: make([]orphanCandidate, 0, len(targets)),
+	}
+
+	for _, target := range targets {
+		if !isValidHash(target.hash) {
+			return restorePlan{}, fmt.Errorf("invalid manifest hash for artifact: %s", target.path)
 		}
 
-		info, err := os.Stat(store.blobPath(artifact.hash))
+		info, err := os.Stat(store.blobPath(target.hash))
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("blob missing for artifact: %s", artifact.path)
+				return restorePlan{}, fmt.Errorf("blob missing for artifact: %s", target.path)
 			}
-			return fmt.Errorf("failed to check blob for %s: %v", artifact.path, err)
+			return restorePlan{}, fmt.Errorf("failed to check blob for %s: %v", target.path, err)
 		}
 		if info.IsDir() {
-			return fmt.Errorf("blob for artifact is a directory: %s", artifact.path)
+			return restorePlan{}, fmt.Errorf("blob for artifact is a directory: %s", target.path)
+		}
+
+		targetContent, err := os.ReadFile(store.blobPath(target.hash))
+		if err != nil {
+			return restorePlan{}, fmt.Errorf("failed to read blob for %s: %v", target.path, err)
+		}
+		target.content = targetContent
+		plan.targets = append(plan.targets, target)
+
+		currentContent, err := os.ReadFile(target.path)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return restorePlan{}, fmt.Errorf("failed to read current artifact %s: %v", target.path, err)
+		}
+		if bytes.Equal(currentContent, targetContent) {
+			continue
+		}
+
+		plan.orphanCandidates = append(plan.orphanCandidates, orphanCandidate{
+			path:    target.path,
+			hash:    hashContent(currentContent),
+			content: currentContent,
+		})
+	}
+
+	return plan, nil
+}
+
+func applyRestorePlan(plan restorePlan) error {
+	for _, target := range plan.targets {
+		if err := writeFile(target.path, target.content); err != nil {
+			return fmt.Errorf("failed to restore artifact %s: %v", target.path, err)
 		}
 	}
 
@@ -375,15 +421,11 @@ func isValidHash(hash string) bool {
 	return err == nil && len(decoded) == sha256.Size
 }
 
-func copyFile(src, dst string) error {
-	content, err := os.ReadFile(src)
-	if err != nil {
+func writeFile(path string, content []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(dst, content, 0o644)
+	return os.WriteFile(path, content, 0o644)
 }
 
 func printWarnings(warnings []string) {
@@ -412,10 +454,10 @@ func manifestTimestamp(at time.Time) string {
 	return at.UTC().Format(time.RFC3339)
 }
 
-func manifestRestoreArtifacts(storedManifest manifest) []restoreArtifact {
-	artifacts := make([]restoreArtifact, 0, len(storedManifest.Artifacts))
+func manifestRestoreTargets(storedManifest manifest) []restoreTarget {
+	artifacts := make([]restoreTarget, 0, len(storedManifest.Artifacts))
 	for path, hash := range storedManifest.Artifacts {
-		artifacts = append(artifacts, restoreArtifact{path: path, hash: hash})
+		artifacts = append(artifacts, restoreTarget{path: path, hash: hash})
 	}
 
 	// to make stable

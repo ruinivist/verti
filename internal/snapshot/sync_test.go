@@ -362,6 +362,121 @@ func TestSyncEmptyManifestLeavesDirectoryArtifactsUntouched(t *testing.T) {
 	}
 }
 
+func TestBuildRestorePlanEmptyManifest(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-plan-empty", "test.md")
+
+	plan, err := buildRestorePlan(fixture.store, manifest{
+		Version:   manifestVersion,
+		Artifacts: map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("buildRestorePlan() error = %v", err)
+	}
+	if len(plan.targets) != 0 {
+		t.Fatalf("target count = %d, want 0", len(plan.targets))
+	}
+	if len(plan.orphanCandidates) != 0 {
+		t.Fatalf("orphan candidate count = %d, want 0", len(plan.orphanCandidates))
+	}
+}
+
+func TestBuildRestorePlanIdenticalLocalFileDoesNotCreateOrphanCandidate(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-plan-identical", "test.md")
+	content := "snapshot body\n"
+	hash := fixture.writeBlobWithHash(content)
+	fixture.writeArtifact("test.md", content)
+
+	var plan restorePlan
+	var err error
+	testutil.WithWorkingDir(t, fixture.repoDir, func() {
+		plan, err = buildRestorePlan(fixture.store, manifest{
+			Version: manifestVersion,
+			Artifacts: map[string]string{
+				"test.md": hash,
+			},
+		})
+	})
+	if err != nil {
+		t.Fatalf("buildRestorePlan() error = %v", err)
+	}
+	if len(plan.targets) != 1 {
+		t.Fatalf("target count = %d, want 1", len(plan.targets))
+	}
+	if len(plan.orphanCandidates) != 0 {
+		t.Fatalf("orphan candidate count = %d, want 0", len(plan.orphanCandidates))
+	}
+	if got := string(plan.targets[0].content); got != content {
+		t.Fatalf("target content = %q, want %q", got, content)
+	}
+}
+
+func TestBuildRestorePlanDifferentLocalFileCreatesOrphanCandidate(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-plan-different", "test.md")
+	targetContent := "snapshot body\n"
+	currentContent := "edited body\n"
+	hash := fixture.writeBlobWithHash(targetContent)
+	fixture.writeArtifact("test.md", currentContent)
+
+	var plan restorePlan
+	var err error
+	testutil.WithWorkingDir(t, fixture.repoDir, func() {
+		plan, err = buildRestorePlan(fixture.store, manifest{
+			Version: manifestVersion,
+			Artifacts: map[string]string{
+				"test.md": hash,
+			},
+		})
+	})
+	if err != nil {
+		t.Fatalf("buildRestorePlan() error = %v", err)
+	}
+	if len(plan.targets) != 1 {
+		t.Fatalf("target count = %d, want 1", len(plan.targets))
+	}
+	if len(plan.orphanCandidates) != 1 {
+		t.Fatalf("orphan candidate count = %d, want 1", len(plan.orphanCandidates))
+	}
+	if got := string(plan.targets[0].content); got != targetContent {
+		t.Fatalf("target content = %q, want %q", got, targetContent)
+	}
+	candidate := plan.orphanCandidates[0]
+	if candidate.path != "test.md" {
+		t.Fatalf("orphan candidate path = %q, want %q", candidate.path, "test.md")
+	}
+	if candidate.hash != hashContent([]byte(currentContent)) {
+		t.Fatalf("orphan candidate hash = %q, want %q", candidate.hash, hashContent([]byte(currentContent)))
+	}
+	if got := string(candidate.content); got != currentContent {
+		t.Fatalf("orphan candidate content = %q, want %q", got, currentContent)
+	}
+}
+
+func TestBuildRestorePlanMissingLocalFileDoesNotCreateOrphanCandidate(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-plan-missing", "test.md")
+	content := "snapshot body\n"
+	hash := fixture.writeBlobWithHash(content)
+
+	var plan restorePlan
+	var err error
+	testutil.WithWorkingDir(t, fixture.repoDir, func() {
+		plan, err = buildRestorePlan(fixture.store, manifest{
+			Version: manifestVersion,
+			Artifacts: map[string]string{
+				"test.md": hash,
+			},
+		})
+	})
+	if err != nil {
+		t.Fatalf("buildRestorePlan() error = %v", err)
+	}
+	if len(plan.targets) != 1 {
+		t.Fatalf("target count = %d, want 1", len(plan.targets))
+	}
+	if len(plan.orphanCandidates) != 0 {
+		t.Fatalf("orphan candidate count = %d, want 0", len(plan.orphanCandidates))
+	}
+}
+
 func TestSyncInvalidManifestHashFails(t *testing.T) {
 	fixture := newSyncFixture(t, "repo-invalid-hash", "test.md")
 	fixture.writeArtifact("test.md", "snapshot body\n")
@@ -385,6 +500,23 @@ func TestSyncInvalidManifestHashFails(t *testing.T) {
 	}
 }
 
+func TestBuildRestorePlanInvalidManifestHashFails(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-plan-invalid-hash", "test.md")
+
+	_, err := buildRestorePlan(fixture.store, manifest{
+		Version: manifestVersion,
+		Artifacts: map[string]string{
+			"test.md": "",
+		},
+	})
+	if err == nil {
+		t.Fatal("buildRestorePlan() error = nil, want error")
+	}
+	if err.Error() != "invalid manifest hash for artifact: test.md" {
+		t.Fatalf("buildRestorePlan() error = %q, want %q", err.Error(), "invalid manifest hash for artifact: test.md")
+	}
+}
+
 func TestSyncMissingBlobFails(t *testing.T) {
 	fixture := newSyncFixture(t, "repo-missing-blob", "test.md")
 	fixture.writeArtifact("test.md", "snapshot body\n")
@@ -404,6 +536,51 @@ func TestSyncMissingBlobFails(t *testing.T) {
 	}
 	if err.Error() != "blob missing for artifact: test.md" {
 		t.Fatalf("Sync() error = %q, want %q", err.Error(), "blob missing for artifact: test.md")
+	}
+}
+
+func TestBuildRestorePlanMissingBlobFails(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-plan-missing-blob", "test.md")
+
+	_, err := buildRestorePlan(fixture.store, manifest{
+		Version: manifestVersion,
+		Artifacts: map[string]string{
+			"test.md": hashContent([]byte("snapshot body\n")),
+		},
+	})
+	if err == nil {
+		t.Fatal("buildRestorePlan() error = nil, want error")
+	}
+	if err.Error() != "blob missing for artifact: test.md" {
+		t.Fatalf("buildRestorePlan() error = %q, want %q", err.Error(), "blob missing for artifact: test.md")
+	}
+}
+
+func TestBuildRestorePlanUnreadableCurrentArtifactFailsBeforeMutation(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-plan-unreadable", "test.md")
+	originalContent := "snapshot body\n"
+	hash := fixture.writeBlobWithHash(originalContent)
+	if err := os.MkdirAll(fixture.artifactPath("test.md"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	var err error
+	testutil.WithWorkingDir(t, fixture.repoDir, func() {
+		_, err = buildRestorePlan(fixture.store, manifest{
+			Version: manifestVersion,
+			Artifacts: map[string]string{
+				"test.md": hash,
+			},
+		})
+	})
+	if err == nil {
+		t.Fatal("buildRestorePlan() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "failed to read current artifact test.md:") {
+		t.Fatalf("buildRestorePlan() error = %q, want path-specific read error", err.Error())
+	}
+	if _, statErr := os.Stat(fixture.artifactPath("test.md")); statErr != nil {
+		t.Fatalf("Stat() error = %v", statErr)
 	}
 }
 
@@ -448,6 +625,39 @@ func TestSyncRejectsEscapingArtifactPaths(t *testing.T) {
 	}
 	if err.Error() != "invalid artifact path \"../outside.txt\": must not escape repository" {
 		t.Fatalf("Sync() error = %q, want %q", err.Error(), "invalid artifact path \"../outside.txt\": must not escape repository")
+	}
+}
+
+func TestApplyRestorePlanUsesPlannedContent(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-apply-plan", "test.md")
+	hash := fixture.writeBlobWithHash("original blob content\n")
+
+	var plan restorePlan
+	var err error
+	testutil.WithWorkingDir(t, fixture.repoDir, func() {
+		plan, err = buildRestorePlan(fixture.store, manifest{
+			Version: manifestVersion,
+			Artifacts: map[string]string{
+				"test.md": hash,
+			},
+		})
+	})
+	if err != nil {
+		t.Fatalf("buildRestorePlan() error = %v", err)
+	}
+
+	if err := os.WriteFile(fixture.store.blobPath(hash), []byte("changed after planning\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	testutil.WithWorkingDir(t, fixture.repoDir, func() {
+		err = applyRestorePlan(plan)
+	})
+	if err != nil {
+		t.Fatalf("applyRestorePlan() error = %v", err)
+	}
+	if got := fixture.readArtifact("test.md"); got != "original blob content\n" {
+		t.Fatalf("artifact = %q, want %q", got, "original blob content\n")
 	}
 }
 
@@ -496,6 +706,19 @@ func (f syncFixture) readBlob(hash string) string {
 		f.t.Fatalf("read blob: %v", err)
 	}
 	return string(content)
+}
+
+func (f syncFixture) writeBlobWithHash(content string) string {
+	f.t.Helper()
+
+	hash := hashContent([]byte(content))
+	if err := f.store.ensureDirs(); err != nil {
+		f.t.Fatalf("ensureDirs() error = %v", err)
+	}
+	if err := writeBlob(f.store, hash, []byte(content)); err != nil {
+		f.t.Fatalf("writeBlob() error = %v", err)
+	}
+	return hash
 }
 
 func (f syncFixture) readManifest(commit string) manifest {
