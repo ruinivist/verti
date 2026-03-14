@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	verticonfig "verti/internal/config"
@@ -140,6 +141,142 @@ func TestSyncReusesBlobAcrossCommitsWithIdenticalContent(t *testing.T) {
 	}
 }
 
+func TestSyncSnapshotsAndRestoresConfiguredDirectory(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-dir", "docs")
+	fixture.writeArtifact("docs/guide.md", "guide v1\n")
+	fixture.writeArtifact("docs/nested/notes.txt", "notes v1\n")
+	if err := os.MkdirAll(fixture.artifactPath("docs/empty"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	head := fixture.head()
+	headDisplay := fixture.headDisplay()
+
+	stdout, stderr, err := fixture.runSync()
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+	if stdout != prefixed("Created artifacts for "+headDisplay+"\n") {
+		t.Fatalf("stdout = %q, want %q", stdout, prefixed("Created artifacts for "+headDisplay+"\n"))
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+
+	storedManifest := fixture.readManifest(head)
+	if len(storedManifest.Artifacts) != 2 {
+		t.Fatalf("manifest entries = %d, want 2", len(storedManifest.Artifacts))
+	}
+	if got := storedManifest.Artifacts["docs/guide.md"]; got != hashContent([]byte("guide v1\n")) {
+		t.Fatalf("manifest hash = %q, want %q", got, hashContent([]byte("guide v1\n")))
+	}
+	if got := storedManifest.Artifacts["docs/nested/notes.txt"]; got != hashContent([]byte("notes v1\n")) {
+		t.Fatalf("manifest hash = %q, want %q", got, hashContent([]byte("notes v1\n")))
+	}
+
+	fixture.writeArtifact("docs/guide.md", "guide edited\n")
+	if err := os.Remove(fixture.artifactPath("docs/nested/notes.txt")); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+	fixture.writeArtifact("docs/extra.txt", "leave me alone\n")
+
+	stdout, stderr, err = fixture.runSync()
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+	if stdout != prefixed("Restored artifacts at "+headDisplay+"\n") {
+		t.Fatalf("stdout = %q, want %q", stdout, prefixed("Restored artifacts at "+headDisplay+"\n"))
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+
+	if got := fixture.readArtifact("docs/guide.md"); got != "guide v1\n" {
+		t.Fatalf("guide = %q, want %q", got, "guide v1\n")
+	}
+	if got := fixture.readArtifact("docs/nested/notes.txt"); got != "notes v1\n" {
+		t.Fatalf("notes = %q, want %q", got, "notes v1\n")
+	}
+	if got := fixture.readArtifact("docs/extra.txt"); got != "leave me alone\n" {
+		t.Fatalf("extra = %q, want %q", got, "leave me alone\n")
+	}
+}
+
+func TestSyncRestoresConfiguredDirectoryWhenMissingLocally(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-dir-missing", "docs")
+	fixture.writeArtifact("docs/guide.md", "guide v1\n")
+
+	headDisplay := fixture.headDisplay()
+	fixture.mustSync()
+
+	if err := os.RemoveAll(fixture.artifactPath("docs")); err != nil {
+		t.Fatalf("RemoveAll() error = %v", err)
+	}
+
+	stdout, stderr, err := fixture.runSync()
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+	if stdout != prefixed("Restored artifacts at "+headDisplay+"\n") {
+		t.Fatalf("stdout = %q, want %q", stdout, prefixed("Restored artifacts at "+headDisplay+"\n"))
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if got := fixture.readArtifact("docs/guide.md"); got != "guide v1\n" {
+		t.Fatalf("guide = %q, want %q", got, "guide v1\n")
+	}
+}
+
+func TestSyncAllowsOverlappingArtifactsWithLaterEntryWinning(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-overlap", "docs", "docs/guide.md")
+	fixture.writeArtifact("docs/guide.md", "guide v1\n")
+	fixture.writeArtifact("docs/other.txt", "other v1\n")
+
+	fixture.mustSync()
+
+	storedManifest := fixture.readManifest(fixture.head())
+	if len(storedManifest.Artifacts) != 2 {
+		t.Fatalf("manifest entries = %d, want 2", len(storedManifest.Artifacts))
+	}
+	if got := storedManifest.Artifacts["docs/guide.md"]; got != hashContent([]byte("guide v1\n")) {
+		t.Fatalf("manifest hash = %q, want %q", got, hashContent([]byte("guide v1\n")))
+	}
+}
+
+func TestSyncSkipsSymlinksInsideConfiguredDirectory(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-symlink", "docs")
+	fixture.writeArtifact("docs/guide.md", "guide v1\n")
+	if err := os.Symlink("guide.md", fixture.artifactPath("docs/link.md")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	head := fixture.head()
+	headDisplay := fixture.headDisplay()
+
+	stdout, stderr, err := fixture.runSync()
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+	if !strings.Contains(stdout, prefixed("warning: skipped symlink artifact docs/link.md\n")) {
+		t.Fatalf("stdout = %q, want warning", stdout)
+	}
+	if !strings.Contains(stdout, prefixed("Created artifacts for "+headDisplay+"\n")) {
+		t.Fatalf("stdout = %q, want create message", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+
+	storedManifest := fixture.readManifest(head)
+	if len(storedManifest.Artifacts) != 1 {
+		t.Fatalf("manifest entries = %d, want 1", len(storedManifest.Artifacts))
+	}
+	if _, ok := storedManifest.Artifacts["docs/link.md"]; ok {
+		t.Fatalf("manifest unexpectedly contains symlink entry")
+	}
+}
+
 func TestSyncMissingArtifactFails(t *testing.T) {
 	fixture := newSyncFixture(t, "repo-missing", "missing.txt")
 
@@ -162,10 +299,11 @@ func TestSyncMissingArtifactFails(t *testing.T) {
 	}
 }
 
-func TestSyncMissingManifestArtifactFails(t *testing.T) {
+func TestSyncEmptyManifestRestoresNothing(t *testing.T) {
 	fixture := newSyncFixture(t, "repo-restore", "test.md")
 	fixture.writeArtifact("test.md", "snapshot body\n")
 
+	headDisplay := fixture.headDisplay()
 	head := fixture.head()
 	fixture.mustSync()
 	fixture.writeManifest(head, manifest{
@@ -174,12 +312,46 @@ func TestSyncMissingManifestArtifactFails(t *testing.T) {
 	})
 	fixture.writeArtifact("test.md", "edited body\n")
 
-	_, _, err := fixture.runSync()
-	if err == nil {
-		t.Fatal("Sync() error = nil, want error")
+	stdout, stderr, err := fixture.runSync()
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
 	}
-	if err.Error() != "manifest missing artifact: test.md" {
-		t.Fatalf("Sync() error = %q, want %q", err.Error(), "manifest missing artifact: test.md")
+	if stdout != prefixed("Restored artifacts at "+headDisplay+"\n") {
+		t.Fatalf("stdout = %q, want %q", stdout, prefixed("Restored artifacts at "+headDisplay+"\n"))
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if got := fixture.readArtifact("test.md"); got != "edited body\n" {
+		t.Fatalf("artifact = %q, want %q", got, "edited body\n")
+	}
+}
+
+func TestSyncEmptyManifestLeavesDirectoryArtifactsUntouched(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-dir-restore", "docs")
+	fixture.writeArtifact("docs/guide.md", "snapshot body\n")
+
+	headDisplay := fixture.headDisplay()
+	head := fixture.head()
+	fixture.mustSync()
+	fixture.writeManifest(head, manifest{
+		Version:   manifestVersion,
+		Artifacts: map[string]string{},
+	})
+	fixture.writeArtifact("docs/guide.md", "edited body\n")
+
+	stdout, stderr, err := fixture.runSync()
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+	if stdout != prefixed("Restored artifacts at "+headDisplay+"\n") {
+		t.Fatalf("stdout = %q, want %q", stdout, prefixed("Restored artifacts at "+headDisplay+"\n"))
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if got := fixture.readArtifact("docs/guide.md"); got != "edited body\n" {
+		t.Fatalf("artifact = %q, want %q", got, "edited body\n")
 	}
 }
 

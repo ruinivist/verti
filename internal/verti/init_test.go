@@ -12,7 +12,7 @@ import (
 
 func TestInitCreatesConfigAndHook(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
-	editor := testutil.NewFakeEditor(t, repoDir, "#!/bin/sh\ncat <<'EOF' > \"$1\"\n[verti]\nrepo_id = \"repo-1\"\nartifacts = [\"test.md\", \"docs/output\"]\nEOF\n")
+	editor := testutil.NewFakeEditor(t, repoDir, "#!/bin/sh\ncat <<'EOF' > \"$1\"\n[verti]\nrepo_id = \"repo-1\"\nartifacts = [\"test.md\", \"docs\"]\nEOF\n")
 	t.Setenv("GIT_EDITOR", editor)
 	t.Setenv("EDITOR", "")
 
@@ -33,7 +33,7 @@ func TestInitCreatesConfigAndHook(t *testing.T) {
 		if !strings.Contains(text, "repo_id = ") {
 			t.Fatalf("config missing repo_id: %q", text)
 		}
-		if !strings.Contains(text, "artifacts = [\"test.md\", \"docs/output\"]\n") {
+		if !strings.Contains(text, "artifacts = [\"test.md\", \"docs\"]\n") {
 			t.Fatalf("config missing edited artifacts: %q", text)
 		}
 
@@ -44,8 +44,8 @@ func TestInitCreatesConfigAndHook(t *testing.T) {
 		if cfg.RepoID == "" {
 			t.Fatal("ReadConfig() RepoID = empty, want non-empty")
 		}
-		if strings.Join(cfg.Artifacts, ",") != "test.md,docs/output" {
-			t.Fatalf("ReadConfig() Artifacts = %#v, want %#v", cfg.Artifacts, []string{"test.md", "docs/output"})
+		if strings.Join(cfg.Artifacts, ",") != "test.md,docs" {
+			t.Fatalf("ReadConfig() Artifacts = %#v, want %#v", cfg.Artifacts, []string{"test.md", "docs"})
 		}
 
 		hook, err := os.ReadFile(filepath.Join(repoDir, referenceTransactionPath))
@@ -71,8 +71,8 @@ func TestInitCreatesConfigAndHook(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
-		if string(exclude) != "test.md\ndocs/output\n" {
-			t.Fatalf("exclude = %q, want %q", string(exclude), "test.md\ndocs/output\n")
+		if string(exclude) != "test.md\ndocs\n" {
+			t.Fatalf("exclude = %q, want %q", string(exclude), "test.md\ndocs\n")
 		}
 	})
 }

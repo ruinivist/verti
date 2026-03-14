@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	verticonfig "verti/internal/config"
@@ -21,6 +23,11 @@ const manifestVersion = 1
 type manifest struct {
 	Version   int               `json:"version"`
 	Artifacts map[string]string `json:"artifacts"`
+}
+
+type restoreArtifact struct {
+	path string
+	hash string
 }
 
 func Sync(cfg verticonfig.Config) error {
@@ -59,7 +66,7 @@ func Sync(cfg verticonfig.Config) error {
 		if err != nil {
 			return err
 		}
-		if err := restoreArtifacts(store, storedManifest, artifacts); err != nil {
+		if err := restoreArtifacts(store, storedManifest); err != nil {
 			return err
 		}
 
@@ -74,10 +81,11 @@ func Sync(cfg verticonfig.Config) error {
 		return err
 	}
 
-	storedManifest, blobContents, err := snapshotArtifacts(artifacts)
+	storedManifest, blobContents, warnings, err := snapshotArtifacts(artifacts)
 	if err != nil {
 		return err
 	}
+	printWarnings(warnings)
 	for hash, content := range blobContents {
 		if err := writeBlob(store, hash, content); err != nil {
 			return err
@@ -91,20 +99,21 @@ func Sync(cfg verticonfig.Config) error {
 	return nil
 }
 
-func snapshotArtifacts(artifacts []string) (manifest, map[string][]byte, error) {
-	if err := validateArtifactInputs(artifacts); err != nil {
-		return manifest{}, nil, err
+func snapshotArtifacts(artifacts []string) (manifest, map[string][]byte, []string, error) {
+	expanded, warnings, err := expandArtifacts(artifacts)
+	if err != nil {
+		return manifest{}, nil, nil, err
 	}
 
 	storedManifest := manifest{
 		Version:   manifestVersion,
-		Artifacts: make(map[string]string, len(artifacts)),
+		Artifacts: make(map[string]string, len(expanded)),
 	}
-	blobContents := make(map[string][]byte, len(artifacts))
-	for _, artifact := range artifacts {
+	blobContents := make(map[string][]byte, len(expanded))
+	for _, artifact := range expanded {
 		content, err := os.ReadFile(artifact)
 		if err != nil {
-			return manifest{}, nil, fmt.Errorf("failed to read artifact %s: %v", artifact, err)
+			return manifest{}, nil, nil, fmt.Errorf("failed to read artifact %s: %v", artifact, err)
 		}
 
 		hash := hashContent(content)
@@ -114,65 +123,113 @@ func snapshotArtifacts(artifacts []string) (manifest, map[string][]byte, error) 
 		}
 	}
 
-	return storedManifest, blobContents, nil
+	return storedManifest, blobContents, warnings, nil
 }
 
-func restoreArtifacts(store store, storedManifest manifest, artifacts []string) error {
-	hashes, err := validateRestoreInputs(store, storedManifest, artifacts)
-	if err != nil {
+func restoreArtifacts(store store, storedManifest manifest) error {
+	restoreTargets := manifestRestoreArtifacts(storedManifest)
+	if err := validateRestoreInputs(store, restoreTargets); err != nil {
 		return err
 	}
 
-	for _, artifact := range artifacts {
-		hash := hashes[artifact]
-		if err := copyFile(store.blobPath(hash), artifact); err != nil {
-			return fmt.Errorf("failed to restore artifact %s: %v", artifact, err)
+	for _, artifact := range restoreTargets {
+		if err := copyFile(store.blobPath(artifact.hash), artifact.path); err != nil {
+			return fmt.Errorf("failed to restore artifact %s: %v", artifact.path, err)
 		}
 	}
 
 	return nil
 }
 
-func validateArtifactInputs(artifacts []string) error {
+func expandArtifacts(artifacts []string) ([]string, []string, error) {
+	expanded := make([]string, 0, len(artifacts))
+	warnings := make([]string, 0)
 	for _, artifact := range artifacts {
-		info, err := os.Stat(artifact)
+		paths, artifactWarnings, err := expandArtifact(artifact)
+		if err != nil {
+			return nil, nil, err
+		}
+		warnings = append(warnings, artifactWarnings...)
+		expanded = append(expanded, paths...)
+	}
+
+	sort.Strings(expanded)
+	return uniqueStrings(expanded), warnings, nil
+}
+
+func expandArtifact(artifact string) ([]string, []string, error) {
+	info, err := os.Lstat(artifact)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil, fmt.Errorf("artifact not found: %s", artifact)
+		}
+		return nil, nil, fmt.Errorf("failed to check artifact %s: %v", artifact, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, nil, fmt.Errorf("artifact is a symlink: %s", artifact)
+	}
+	if info.IsDir() {
+		return walkArtifactDir(artifact)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, nil, fmt.Errorf("artifact is not a regular file: %s", artifact)
+	}
+
+	return []string{artifact}, nil, nil
+}
+
+func walkArtifactDir(root string) ([]string, []string, error) {
+	paths := make([]string, 0)
+	warnings := make([]string, 0)
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("failed to walk artifact %s: %v", root, err)
+		}
+		if path == root {
+			return nil
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			warnings = append(warnings, fmt.Sprintf("warning: skipped symlink artifact %s", path))
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return fmt.Errorf("artifact is not a regular file: %s", path)
+		}
+
+		paths = append(paths, filepath.Clean(path))
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	sort.Strings(paths)
+	return paths, warnings, nil
+}
+
+func validateRestoreInputs(store store, artifacts []restoreArtifact) error {
+	for _, artifact := range artifacts {
+		if !isValidHash(artifact.hash) {
+			return fmt.Errorf("invalid manifest hash for artifact: %s", artifact.path)
+		}
+
+		info, err := os.Stat(store.blobPath(artifact.hash))
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("artifact not found: %s", artifact)
+				return fmt.Errorf("blob missing for artifact: %s", artifact.path)
 			}
-			return fmt.Errorf("failed to check artifact %s: %v", artifact, err)
+			return fmt.Errorf("failed to check blob for %s: %v", artifact.path, err)
 		}
 		if info.IsDir() {
-			return fmt.Errorf("artifact is a directory: %s", artifact)
+			return fmt.Errorf("blob for artifact is a directory: %s", artifact.path)
 		}
 	}
 
 	return nil
-}
-
-func validateRestoreInputs(store store, storedManifest manifest, artifacts []string) (map[string]string, error) {
-	hashes := make(map[string]string, len(artifacts))
-	for _, artifact := range artifacts {
-		hash, err := manifestHashForArtifact(storedManifest, artifact)
-		if err != nil {
-			return nil, err
-		}
-
-		info, err := os.Stat(store.blobPath(hash))
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return nil, fmt.Errorf("blob missing for artifact: %s", artifact)
-			}
-			return nil, fmt.Errorf("failed to check blob for %s: %v", artifact, err)
-		}
-		if info.IsDir() {
-			return nil, fmt.Errorf("blob for artifact is a directory: %s", artifact)
-		}
-
-		hashes[artifact] = hash
-	}
-
-	return hashes, nil
 }
 
 func manifestHashForArtifact(storedManifest manifest, artifact string) (string, error) {
@@ -317,4 +374,39 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return os.WriteFile(dst, content, 0o644)
+}
+
+func printWarnings(warnings []string) {
+	for _, warning := range warnings {
+		output.Printf("%s\n", warning)
+	}
+}
+
+func uniqueStrings(paths []string) []string {
+	if len(paths) == 0 {
+		return paths
+	}
+
+	out := paths[:1]
+	for _, path := range paths[1:] {
+		if path == out[len(out)-1] {
+			continue
+		}
+		out = append(out, path)
+	}
+
+	return out
+}
+
+func manifestRestoreArtifacts(storedManifest manifest) []restoreArtifact {
+	artifacts := make([]restoreArtifact, 0, len(storedManifest.Artifacts))
+	for path, hash := range storedManifest.Artifacts {
+		artifacts = append(artifacts, restoreArtifact{path: path, hash: hash})
+	}
+
+	// to make stable
+	sort.Slice(artifacts, func(i, j int) bool {
+		return artifacts[i].path < artifacts[j].path
+	})
+	return artifacts
 }

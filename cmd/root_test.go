@@ -207,6 +207,106 @@ func TestRunSyncSnapshotAndRestore(t *testing.T) {
 	}
 }
 
+func TestRunSyncSnapshotAndRestoreDirectoryArtifact(t *testing.T) {
+	repoDir := testutil.NewGitRepo(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if err := verticonfig.WriteConfig(filepath.Join(repoDir, ".git", "verti.toml"), verticonfig.Config{
+		RepoID:    "repo-cmd-dir",
+		Artifacts: []string{"docs"},
+	}); err != nil {
+		t.Fatalf("WriteConfig() error = %v", err)
+	}
+	testutil.WriteFile(t, filepath.Join(repoDir, "docs", "guide.md"), "guide body\n")
+	testutil.WriteFile(t, filepath.Join(repoDir, "docs", "nested", "notes.txt"), "notes body\n")
+
+	head := testutil.GitRevParse(t, repoDir, "HEAD")
+	headDisplay := testutil.RunGit(t, repoDir, "show", "-s", "--format=%s [%h]", "HEAD")
+
+	testutil.WithWorkingDir(t, repoDir, func() {
+		stdout, stderr := captureOutput(t, func() {
+			if got := Run([]string{"sync"}); got != 0 {
+				t.Fatalf("Run() code = %d, want %d", got, 0)
+			}
+		})
+
+		if stdout != prefixed("Created artifacts for "+headDisplay+"\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Created artifacts for "+headDisplay+"\n"))
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+
+		testutil.WriteFile(t, filepath.Join(repoDir, "docs", "guide.md"), "edited body\n")
+		testutil.WriteFile(t, filepath.Join(repoDir, "docs", "extra.txt"), "keep me\n")
+		if err := os.Remove(filepath.Join(repoDir, "docs", "nested", "notes.txt")); err != nil {
+			t.Fatalf("Remove() error = %v", err)
+		}
+
+		stdout, stderr = captureOutput(t, func() {
+			if got := Run([]string{"sync"}); got != 0 {
+				t.Fatalf("Run() code = %d, want %d", got, 0)
+			}
+		})
+
+		if stdout != prefixed("Restored artifacts at "+headDisplay+"\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Restored artifacts at "+headDisplay+"\n"))
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+	})
+
+	guide, err := os.ReadFile(filepath.Join(repoDir, "docs", "guide.md"))
+	if err != nil {
+		t.Fatalf("read guide: %v", err)
+	}
+	if string(guide) != "guide body\n" {
+		t.Fatalf("guide = %q, want %q", string(guide), "guide body\n")
+	}
+
+	notes, err := os.ReadFile(filepath.Join(repoDir, "docs", "nested", "notes.txt"))
+	if err != nil {
+		t.Fatalf("read notes: %v", err)
+	}
+	if string(notes) != "notes body\n" {
+		t.Fatalf("notes = %q, want %q", string(notes), "notes body\n")
+	}
+
+	extra, err := os.ReadFile(filepath.Join(repoDir, "docs", "extra.txt"))
+	if err != nil {
+		t.Fatalf("read extra: %v", err)
+	}
+	if string(extra) != "keep me\n" {
+		t.Fatalf("extra = %q, want %q", string(extra), "keep me\n")
+	}
+
+	repoStoreDir := filepath.Join(home, ".verti", "repos", "repo-cmd-dir")
+	manifestPath := filepath.Join(repoStoreDir, "manifests", head+".json")
+	manifestContent, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+
+	var manifest struct {
+		Version   int               `json:"version"`
+		Artifacts map[string]string `json:"artifacts"`
+	}
+	if err := json.Unmarshal(manifestContent, &manifest); err != nil {
+		t.Fatalf("unmarshal manifest: %v", err)
+	}
+	if manifest.Version != 1 {
+		t.Fatalf("manifest version = %d, want 1", manifest.Version)
+	}
+	if got := manifest.Artifacts["docs/guide.md"]; got != sha256Hex([]byte("guide body\n")) {
+		t.Fatalf("guide hash = %q, want %q", got, sha256Hex([]byte("guide body\n")))
+	}
+	if got := manifest.Artifacts["docs/nested/notes.txt"]; got != sha256Hex([]byte("notes body\n")) {
+		t.Fatalf("notes hash = %q, want %q", got, sha256Hex([]byte("notes body\n")))
+	}
+}
+
 func TestRunSyncNoArtifacts(t *testing.T) {
 	repoDir := testutil.NewGitRepo(t)
 	t.Setenv("HOME", t.TempDir())
