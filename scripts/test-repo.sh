@@ -2,7 +2,7 @@
 set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-test_repo="$repo_root/test-repo"
+test_repo="${TEST_REPO_DIR:-$repo_root/test-repo}"
 verti_bin="${VERTI_BIN:-$repo_root/build/verti}"
 
 rm -rf "$test_repo"
