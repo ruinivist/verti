@@ -22,6 +22,8 @@ type tomlVertiConfig struct {
 	Artifacts []string `toml:"artifacts"`
 }
 
+const managedHeader = "# Managed by Verti. Manual edits may be rewritten.\n# Comments and formatting in this file will be lost.\n\n"
+
 func ReadConfig(path string) (Config, error) {
 	var raw tomlConfig
 
@@ -46,6 +48,7 @@ func WriteConfig(path string, cfg Config) error {
 	}
 
 	var buf bytes.Buffer
+	buf.WriteString(managedHeader)
 	err = toml.NewEncoder(&buf).Encode(tomlConfig{
 		Verti: tomlVertiConfig{
 			RepoID:    cfg.RepoID,

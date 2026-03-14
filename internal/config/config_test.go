@@ -111,6 +111,9 @@ func TestWriteConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read config: %v", err)
 	}
+	if !bytes.HasPrefix(content, []byte(managedHeader)) {
+		t.Fatalf("config missing managed header: %q", string(content))
+	}
 	if !bytes.Contains(content, []byte("[verti]\n")) {
 		t.Fatalf("config missing [verti] table: %q", string(content))
 	}

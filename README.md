@@ -25,9 +25,12 @@ The files are ignored by git by adding them to `.git/info/exclude` file automati
 - `make build` to build the binary in `./build/verti`
 - add it to path
 - `verti init`. This opens the repo specific `verti.toml` config file. Can rerun to update the config/hooks as needed.
+- `verti add <path>` to register a file or directory without opening an editor.
 
 # Dev notes
 
 ### Trying out
 
 A `test-repo` directory can be created with `make test-repo` command. Inside that there's a main branch and a `feature` branch for merge and a `feature2` branch for rebase.
+
+### Adding an E2E test

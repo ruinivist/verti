@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -466,34 +465,7 @@ func writeAtomic(path, pattern string, content []byte) error {
 }
 
 func normalizeArtifacts(artifacts []string) ([]string, error) {
-	normalized := make([]string, 0, len(artifacts))
-	for _, artifact := range artifacts {
-		cleaned, err := normalizeArtifactPath(artifact)
-		if err != nil {
-			return nil, fmt.Errorf("invalid artifact path %q: %v", artifact, err)
-		}
-		normalized = append(normalized, cleaned)
-	}
-	return normalized, nil
-}
-
-func normalizeArtifactPath(path string) (string, error) {
-	if path == "" {
-		return "", errors.New("empty path")
-	}
-	if filepath.IsAbs(path) {
-		return "", errors.New("must be relative")
-	}
-
-	cleaned := filepath.Clean(path)
-	if cleaned == "." {
-		return "", errors.New("must point to a file")
-	}
-	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-		return "", errors.New("must not escape repository")
-	}
-
-	return cleaned, nil
+	return verticonfig.NormalizeArtifactPaths(artifacts)
 }
 
 func hashContent(content []byte) string {

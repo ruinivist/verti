@@ -10,6 +10,8 @@ func Run(args []string) int {
 	}
 
 	switch args[0] {
+	case "add":
+		return runAdd(args[1:])
 	case "init":
 		return runInit(args[1:])
 	case "orphans":

@@ -38,6 +38,12 @@ func TestRun(t *testing.T) {
 			wantCode: 0,
 		},
 		{
+			name:     "add",
+			args:     []string{"add", "notes.txt"},
+			wantOut:  prefixed("Added artifact: notes.txt\n"),
+			wantCode: 0,
+		},
+		{
 			name:     "unknown command",
 			args:     []string{"wat"},
 			wantOut:  prefixed("unknown command: wat\n"),
@@ -53,6 +59,18 @@ func TestRun(t *testing.T) {
 			name:     "init extra",
 			args:     []string{"init", "extra"},
 			wantOut:  prefixed("unknown init option: extra\n"),
+			wantCode: 1,
+		},
+		{
+			name:     "add missing path",
+			args:     []string{"add"},
+			wantOut:  prefixed("usage: verti add <path>\n"),
+			wantCode: 1,
+		},
+		{
+			name:     "add extra",
+			args:     []string{"add", "notes.txt", "extra"},
+			wantOut:  prefixed("unknown add option: extra\n"),
 			wantCode: 1,
 		},
 		{
@@ -86,7 +104,7 @@ func TestRun(t *testing.T) {
 				}
 			}
 
-			if tt.name == "init" {
+			if tt.name == "init" || tt.name == "add" {
 				repoDir := testutil.NewRepo(t)
 				t.Setenv("GIT_EDITOR", testutil.NewFakeEditor(t, repoDir, "#!/bin/sh\nexit 0\n"))
 				t.Setenv("EDITOR", "")
@@ -132,6 +150,43 @@ func TestRunInitExecution(t *testing.T) {
 		}
 		if string(exclude) != "test.md\nout/report.txt\n" {
 			t.Fatalf("exclude = %q, want %q", string(exclude), "test.md\nout/report.txt\n")
+		}
+	})
+}
+
+func TestRunAddExecution(t *testing.T) {
+	repoDir := testutil.NewRepo(t)
+	t.Setenv("GIT_EDITOR", testutil.NewFakeEditor(t, repoDir, "#!/bin/sh\nexit 99\n"))
+	t.Setenv("EDITOR", "")
+
+	testutil.WithWorkingDir(t, repoDir, func() {
+		stdout, stderr := captureOutput(t, func() {
+			if got := Run([]string{"add", "docs/../notes.txt"}); got != 0 {
+				t.Fatalf("Run() code = %d, want %d", got, 0)
+			}
+		})
+
+		if stdout != prefixed("Added artifact: notes.txt\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Added artifact: notes.txt\n"))
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+
+		config, err := os.ReadFile(filepath.Join(repoDir, ".git", "verti.toml"))
+		if err != nil {
+			t.Fatalf("read config: %v", err)
+		}
+		if !bytes.Contains(config, []byte("repo_id = ")) || !bytes.Contains(config, []byte("artifacts = [\"notes.txt\"]\n")) {
+			t.Fatalf("config missing added artifact: %q", string(config))
+		}
+
+		exclude, err := os.ReadFile(filepath.Join(repoDir, ".git", "info", "exclude"))
+		if err != nil {
+			t.Fatalf("read exclude: %v", err)
+		}
+		if string(exclude) != "notes.txt\n" {
+			t.Fatalf("exclude = %q, want %q", string(exclude), "notes.txt\n")
 		}
 	})
 }
