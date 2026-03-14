@@ -12,6 +12,8 @@ func Run(args []string) int {
 	switch args[0] {
 	case "init":
 		return runInit(args[1:])
+	case "orphans":
+		return runOrphans(args[1:])
 	case "sync":
 		return runSync(args[1:])
 	default:

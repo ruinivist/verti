@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -51,6 +53,18 @@ func TestRun(t *testing.T) {
 			name:     "init extra",
 			args:     []string{"init", "extra"},
 			wantOut:  prefixed("unknown init option: extra\n"),
+			wantCode: 1,
+		},
+		{
+			name:     "orphans extra",
+			args:     []string{"orphans", "1", "extra"},
+			wantOut:  prefixed("unknown orphans option: extra\n"),
+			wantCode: 1,
+		},
+		{
+			name:     "orphans invalid",
+			args:     []string{"orphans", "wat"},
+			wantOut:  prefixed("invalid orphan number: wat\n"),
 			wantCode: 1,
 		},
 	}
@@ -349,6 +363,165 @@ func TestRunSyncNoArtifacts(t *testing.T) {
 	})
 }
 
+func TestRunOrphansEmpty(t *testing.T) {
+	repoDir := testutil.NewGitRepo(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if err := verticonfig.WriteConfig(filepath.Join(repoDir, ".git", "verti.toml"), verticonfig.Config{
+		RepoID:    "repo-cmd-orphans-empty",
+		Artifacts: []string{"test.md"},
+	}); err != nil {
+		t.Fatalf("WriteConfig() error = %v", err)
+	}
+
+	testutil.WithWorkingDir(t, repoDir, func() {
+		stdout, stderr := captureOutput(t, func() {
+			if got := Run([]string{"orphans"}); got != 0 {
+				t.Fatalf("Run() code = %d, want %d", got, 0)
+			}
+		})
+
+		if stdout != prefixed("no orphan snapshots\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("no orphan snapshots\n"))
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+	})
+}
+
+func TestRunOrphansListsNewestFirst(t *testing.T) {
+	repoDir := testutil.NewGitRepo(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	oldLocal := time.Local
+	time.Local = time.FixedZone("UTC", 0)
+	t.Cleanup(func() {
+		time.Local = oldLocal
+	})
+
+	repoID := "repo-cmd-orphans-list"
+	if err := verticonfig.WriteConfig(filepath.Join(repoDir, ".git", "verti.toml"), verticonfig.Config{
+		RepoID:    repoID,
+		Artifacts: []string{"test.md"},
+	}); err != nil {
+		t.Fatalf("WriteConfig() error = %v", err)
+	}
+
+	now := time.Now()
+	recent := now.Add(-2 * time.Hour)
+	older := now.Add(-26 * time.Hour)
+	writeCmdOrphanManifest(t, home, repoID, "orphan-recent", recent, map[string]string{
+		"test.md": writeCmdBlob(t, home, repoID, "recent body\n"),
+	})
+	writeCmdOrphanManifest(t, home, repoID, "orphan-old", older, map[string]string{
+		"test.md":  writeCmdBlob(t, home, repoID, "old body\n"),
+		"docs.txt": writeCmdBlob(t, home, repoID, "other\n"),
+	})
+
+	testutil.WithWorkingDir(t, repoDir, func() {
+		stdout, stderr := captureOutput(t, func() {
+			if got := Run([]string{"orphans"}); got != 0 {
+				t.Fatalf("Run() code = %d, want %d", got, 0)
+			}
+		})
+
+		first := prefixed(fmt.Sprintf("1. 2 hours ago (%s) - 1 artifact\n", recent.In(time.Local).Format("2006-01-02 15:04:05 -0700")))
+		second := prefixed(fmt.Sprintf("2. 1 day ago (%s) - 2 artifacts\n", older.In(time.Local).Format("2006-01-02 15:04:05 -0700")))
+		if !strings.Contains(stdout, first) {
+			t.Fatalf("stdout = %q, want first list entry %q", stdout, first)
+		}
+		if !strings.Contains(stdout, second) {
+			t.Fatalf("stdout = %q, want second list entry %q", stdout, second)
+		}
+		if strings.Index(stdout, first) > strings.Index(stdout, second) {
+			t.Fatalf("stdout order = %q, want newest first", stdout)
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+	})
+}
+
+func TestRunOrphansRestore(t *testing.T) {
+	repoDir := testutil.NewGitRepo(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	repoID := "repo-cmd-orphan-restore"
+	if err := verticonfig.WriteConfig(filepath.Join(repoDir, ".git", "verti.toml"), verticonfig.Config{
+		RepoID:    repoID,
+		Artifacts: []string{"test.md"},
+	}); err != nil {
+		t.Fatalf("WriteConfig() error = %v", err)
+	}
+	testutil.WriteFile(t, filepath.Join(repoDir, "test.md"), "current local\n")
+
+	writeCmdOrphanManifest(t, home, repoID, "orphan-recent", time.Now().Add(-time.Hour), map[string]string{
+		"test.md": writeCmdBlob(t, home, repoID, "recent orphan\n"),
+	})
+	writeCmdOrphanManifest(t, home, repoID, "orphan-old", time.Now().Add(-2*time.Hour), map[string]string{
+		"test.md": writeCmdBlob(t, home, repoID, "old orphan\n"),
+	})
+
+	testutil.WithWorkingDir(t, repoDir, func() {
+		stdout, stderr := captureOutput(t, func() {
+			if got := Run([]string{"orphans", "2"}); got != 0 {
+				t.Fatalf("Run() code = %d, want %d", got, 0)
+			}
+		})
+
+		if stdout != prefixed("Restored orphan #2 (orphan-old)\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Restored orphan #2 (orphan-old)\n"))
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+	})
+
+	content, err := os.ReadFile(filepath.Join(repoDir, "test.md"))
+	if err != nil {
+		t.Fatalf("read artifact: %v", err)
+	}
+	if string(content) != "old orphan\n" {
+		t.Fatalf("artifact = %q, want %q", string(content), "old orphan\n")
+	}
+}
+
+func TestRunOrphansOutOfRange(t *testing.T) {
+	repoDir := testutil.NewGitRepo(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	repoID := "repo-cmd-orphan-range"
+	if err := verticonfig.WriteConfig(filepath.Join(repoDir, ".git", "verti.toml"), verticonfig.Config{
+		RepoID:    repoID,
+		Artifacts: []string{"test.md"},
+	}); err != nil {
+		t.Fatalf("WriteConfig() error = %v", err)
+	}
+	writeCmdOrphanManifest(t, home, repoID, "orphan-only", time.Now().Add(-time.Hour), map[string]string{
+		"test.md": writeCmdBlob(t, home, repoID, "body\n"),
+	})
+
+	testutil.WithWorkingDir(t, repoDir, func() {
+		stdout, stderr := captureOutput(t, func() {
+			if got := Run([]string{"orphans", "2"}); got != 1 {
+				t.Fatalf("Run() code = %d, want %d", got, 1)
+			}
+		})
+
+		if stdout != prefixed("orphan number out of range: 2\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("orphan number out of range: 2\n"))
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+	})
+}
+
 func captureOutput(t *testing.T, fn func()) (string, string) {
 	t.Helper()
 
@@ -408,4 +581,44 @@ func prefixed(msg string) string {
 func sha256Hex(content []byte) string {
 	sum := sha256.Sum256(content)
 	return hex.EncodeToString(sum[:])
+}
+
+func writeCmdBlob(t *testing.T, home, repoID, content string) string {
+	t.Helper()
+
+	hash := sha256Hex([]byte(content))
+	path := filepath.Join(home, ".verti", "repos", repoID, "blobs", hash)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	return hash
+}
+
+func writeCmdOrphanManifest(t *testing.T, home, repoID, id string, createdAt time.Time, artifacts map[string]string) {
+	t.Helper()
+
+	path := filepath.Join(home, ".verti", "repos", repoID, "orphans", id+".json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	content, err := json.MarshalIndent(struct {
+		Version   int               `json:"version"`
+		CreatedAt string            `json:"created_at"`
+		Artifacts map[string]string `json:"artifacts"`
+	}{
+		Version:   1,
+		CreatedAt: createdAt.UTC().Format(time.RFC3339),
+		Artifacts: artifacts,
+	}, "", "  ")
+	if err != nil {
+		t.Fatalf("MarshalIndent() error = %v", err)
+	}
+	content = append(content, '\n')
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
 }

@@ -711,8 +711,8 @@ func TestSyncNoArtifactsRunsCleanupFirst(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
-	if got := fixture.orphanManifestCount(); got != orphanRetentionCount {
-		t.Fatalf("orphan manifest count = %d, want %d", got, orphanRetentionCount)
+	if got := fixture.orphanManifestCount(); got != orphanLimit {
+		t.Fatalf("orphan manifest count = %d, want %d", got, orphanLimit)
 	}
 }
 
@@ -751,8 +751,8 @@ func TestCleanupOrphansKeepsNewestTwentyAndDeletesOnlyManifestFiles(t *testing.T
 	}
 
 	gotIDs := fixture.orphanManifestIDs()
-	if len(gotIDs) != orphanRetentionCount {
-		t.Fatalf("orphan manifest count = %d, want %d", len(gotIDs), orphanRetentionCount)
+	if len(gotIDs) != orphanLimit {
+		t.Fatalf("orphan manifest count = %d, want %d", len(gotIDs), orphanLimit)
 	}
 	if slices.Contains(gotIDs, ids[20]) || slices.Contains(gotIDs, ids[21]) {
 		t.Fatalf("cleanup kept stale orphan ids: %#v", gotIDs)
@@ -791,6 +791,108 @@ func TestCleanupOrphansTieBreaksByIDAscending(t *testing.T) {
 	}
 	if !slices.Equal(gotIDs, wantIDs) {
 		t.Fatalf("cleanup kept ids = %#v, want %#v", gotIDs, wantIDs)
+	}
+}
+
+func TestListOrphansReturnsNewestFirstLimitedList(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-list-orphans")
+	fixture.seedOrphanManifests(22, time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC), time.Minute)
+
+	items, err := ListOrphans(fixture.cfg)
+	if err != nil {
+		t.Fatalf("ListOrphans() error = %v", err)
+	}
+	if len(items) != orphanLimit {
+		t.Fatalf("item count = %d, want %d", len(items), orphanLimit)
+	}
+	if items[0].ID != "orphan-00" {
+		t.Fatalf("first item id = %q, want %q", items[0].ID, "orphan-00")
+	}
+	if items[0].ArtifactCount != 1 {
+		t.Fatalf("first item artifact count = %d, want 1", items[0].ArtifactCount)
+	}
+	if items[len(items)-1].ID != "orphan-19" {
+		t.Fatalf("last item id = %q, want %q", items[len(items)-1].ID, "orphan-19")
+	}
+	if got := fixture.orphanManifestCount(); got != orphanLimit {
+		t.Fatalf("orphan manifest count after list = %d, want %d", got, orphanLimit)
+	}
+}
+
+func TestRestoreOrphanUsesDisplayedOrderAndPreservesCurrentContent(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-restore-orphan", "test.md")
+	fixture.writeArtifact("test.md", "current local\n")
+	newestHash := fixture.writeBlobWithHash("newest orphan\n")
+	olderHash := fixture.writeBlobWithHash("older orphan\n")
+	fixture.writeOrphanManifest("orphan-new", manifest{
+		Version:   manifestVersion,
+		CreatedAt: manifestTimestamp(time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)),
+		Artifacts: map[string]string{"test.md": newestHash},
+	})
+	fixture.writeOrphanManifest("orphan-old", manifest{
+		Version:   manifestVersion,
+		CreatedAt: manifestTimestamp(time.Date(2026, 3, 14, 11, 0, 0, 0, time.UTC)),
+		Artifacts: map[string]string{"test.md": olderHash},
+	})
+
+	var item OrphanItem
+	var err error
+	testutil.WithWorkingDir(t, fixture.repoDir, func() {
+		item, err = RestoreOrphan(fixture.cfg, 2)
+	})
+	if err != nil {
+		t.Fatalf("RestoreOrphan() error = %v", err)
+	}
+	if item.ID != "orphan-old" {
+		t.Fatalf("restored orphan id = %q, want %q", item.ID, "orphan-old")
+	}
+	if got := fixture.readArtifact("test.md"); got != "older orphan\n" {
+		t.Fatalf("artifact = %q, want %q", got, "older orphan\n")
+	}
+
+	orphanManifests := fixture.readOrphanManifests()
+	if len(orphanManifests) != 3 {
+		t.Fatalf("orphan manifest count = %d, want 3", len(orphanManifests))
+	}
+	foundCurrent := false
+	for id, storedOrphan := range orphanManifests {
+		if id == "orphan-new" || id == "orphan-old" {
+			continue
+		}
+		if got := storedOrphan.Artifacts["test.md"]; got == hashContent([]byte("current local\n")) {
+			foundCurrent = true
+		}
+	}
+	if !foundCurrent {
+		t.Fatal("expected restore orphan flow to preserve current local content as a new orphan")
+	}
+}
+
+func TestRestoreOrphanOutOfRangeFails(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-restore-orphan-missing")
+
+	_, err := RestoreOrphan(fixture.cfg, 1)
+	if err == nil {
+		t.Fatal("RestoreOrphan() error = nil, want error")
+	}
+	if err.Error() != "orphan number out of range: 1" {
+		t.Fatalf("RestoreOrphan() error = %q, want %q", err.Error(), "orphan number out of range: 1")
+	}
+}
+
+func TestRestoreOrphanRunsCleanupFirst(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-restore-orphan-cleanup")
+	fixture.seedOrphanManifests(21, time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC), time.Minute)
+
+	var err error
+	testutil.WithWorkingDir(t, fixture.repoDir, func() {
+		_, err = RestoreOrphan(fixture.cfg, 1)
+	})
+	if err != nil {
+		t.Fatalf("RestoreOrphan() error = %v", err)
+	}
+	if got := fixture.orphanManifestCount(); got != orphanLimit {
+		t.Fatalf("orphan manifest count after restore = %d, want %d", got, orphanLimit)
 	}
 }
 

@@ -23,7 +23,7 @@ import (
 
 const storageSubdir = ".verti/repos"
 const manifestVersion = 1
-const orphanRetentionCount = 20
+const orphanLimit = 20
 
 type manifest struct {
 	Version   int               `json:"version"`
@@ -49,8 +49,9 @@ type orphanCandidate struct {
 }
 
 type namedManifest struct {
-	id       string
-	manifest manifest
+	id        string
+	manifest  manifest
+	createdAt time.Time
 }
 
 func Sync(cfg verticonfig.Config) error {
@@ -63,16 +64,8 @@ func Sync(cfg verticonfig.Config) error {
 		return fmt.Errorf("failed to get head display: %v", err)
 	}
 
-	home, err := os.UserHomeDir()
+	store, err := prepareStore(cfg.RepoID)
 	if err != nil {
-		return fmt.Errorf("failed to resolve home: %v", err)
-	}
-
-	store := newStore(home, cfg.RepoID)
-	if err := store.ensureDirs(); err != nil {
-		return err
-	}
-	if err := cleanupOrphans(store); err != nil {
 		return err
 	}
 
@@ -208,17 +201,22 @@ func loadOrphanManifests(store store) ([]namedManifest, error) {
 		if storedManifest.CreatedAt == "" {
 			return nil, fmt.Errorf("failed to load orphan manifest %s: missing manifest created_at", orphanIDFromPath(path))
 		}
+		createdAt, err := time.Parse(time.RFC3339, storedManifest.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load orphan manifest %s: invalid manifest created_at: %v", orphanIDFromPath(path), err)
+		}
 		manifests = append(manifests, namedManifest{
-			id:       orphanIDFromPath(path),
-			manifest: storedManifest,
+			id:        orphanIDFromPath(path),
+			manifest:  storedManifest,
+			createdAt: createdAt,
 		})
 	}
 
 	sort.Slice(manifests, func(i, j int) bool {
-		if manifests[i].manifest.CreatedAt == manifests[j].manifest.CreatedAt {
+		if manifests[i].createdAt.Equal(manifests[j].createdAt) {
 			return manifests[i].id < manifests[j].id
 		}
-		return manifests[i].manifest.CreatedAt > manifests[j].manifest.CreatedAt
+		return manifests[i].createdAt.After(manifests[j].createdAt)
 	})
 
 	return manifests, nil
@@ -229,11 +227,11 @@ func cleanupOrphans(store store) error {
 	if err != nil {
 		return err
 	}
-	if len(manifests) <= orphanRetentionCount {
+	if len(manifests) <= orphanLimit {
 		return nil
 	}
 
-	for _, stale := range manifests[orphanRetentionCount:] {
+	for _, stale := range manifests[orphanLimit:] {
 		if err := store.deleteOrphanManifest(stale.id); err != nil {
 			return err
 		}
