@@ -27,7 +27,7 @@ home_dir="$tmpdir/home"
 repo_dir="$tmpdir/test-repo"
 bin_path="$tmpdir/verti"
 
-mkdir -p "$home_dir" "$repo_root/e2e/local"
+mkdir -p "$home_dir" "$repo_root/e2e/visual"
 
 (
   cd "$repo_root"
@@ -42,10 +42,10 @@ VERTI_BIN="$bin_path" \
 
 for tape_path in "$@"; do
   scenario_name=$(basename "$tape_path" .tape)
-  gif_path="$repo_root/e2e/local/$scenario_name.gif"
+  gif_path="$repo_root/e2e/visual/$scenario_name.gif"
   visual_tape="$tmpdir/$scenario_name.visual.tape"
 
-  awk -v gif_path="e2e/local/$scenario_name.gif" '
+  awk -v gif_path="e2e/visual/$scenario_name.gif" '
     /^Output / { next }
     /^Set TypingSpeed / { print "Set TypingSpeed 80ms"; next }
     /^Sleep 50ms$/ { print "Sleep 400ms"; next }
