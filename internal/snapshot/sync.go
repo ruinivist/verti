@@ -1,7 +1,6 @@
 package snapshot
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -322,6 +321,23 @@ func buildRestorePlan(store store, storedManifest manifest) (restorePlan, error)
 			return restorePlan{}, fmt.Errorf("invalid manifest hash for artifact: %s", target.path)
 		}
 
+		currentContent, err := os.ReadFile(target.path)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return restorePlan{}, fmt.Errorf("failed to read current artifact %s: %v", target.path, err)
+			}
+		} else {
+			if hashContent(currentContent) == target.hash {
+				continue
+			}
+
+			plan.orphanCandidates = append(plan.orphanCandidates, orphanCandidate{
+				path:    target.path,
+				hash:    hashContent(currentContent),
+				content: currentContent,
+			})
+		}
+
 		info, err := os.Stat(store.blobPath(target.hash))
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -339,23 +355,6 @@ func buildRestorePlan(store store, storedManifest manifest) (restorePlan, error)
 		}
 		target.content = targetContent
 		plan.targets = append(plan.targets, target)
-
-		currentContent, err := os.ReadFile(target.path)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
-			return restorePlan{}, fmt.Errorf("failed to read current artifact %s: %v", target.path, err)
-		}
-		if bytes.Equal(currentContent, targetContent) {
-			continue
-		}
-
-		plan.orphanCandidates = append(plan.orphanCandidates, orphanCandidate{
-			path:    target.path,
-			hash:    hashContent(currentContent),
-			content: currentContent,
-		})
 	}
 
 	return plan, nil

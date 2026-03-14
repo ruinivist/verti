@@ -325,8 +325,15 @@ func TestSyncRestoreWithIdenticalLocalFileCreatesNoOrphanSnapshot(t *testing.T) 
 	fixture.writeArtifact("test.md", "snapshot body\n")
 	fixture.mustSync()
 
-	if _, _, err := fixture.runSync(); err != nil {
+	stdout, stderr, err := fixture.runSync()
+	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
+	}
+	if stdout != prefixed("Restored artifacts at "+fixture.headDisplay()+"\n") {
+		t.Fatalf("stdout = %q, want %q", stdout, prefixed("Restored artifacts at "+fixture.headDisplay()+"\n"))
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
 	}
 	if got := fixture.orphanManifestCount(); got != 0 {
 		t.Fatalf("orphan manifest count = %d, want 0", got)
@@ -478,7 +485,7 @@ func TestBuildRestorePlanEmptyManifest(t *testing.T) {
 	}
 }
 
-func TestBuildRestorePlanIdenticalLocalFileDoesNotCreateOrphanCandidate(t *testing.T) {
+func TestBuildRestorePlanIdenticalLocalFileSkipsRestore(t *testing.T) {
 	fixture := newSyncFixture(t, "repo-plan-identical", "test.md")
 	content := "snapshot body\n"
 	hash := fixture.writeBlobWithHash(content)
@@ -497,14 +504,11 @@ func TestBuildRestorePlanIdenticalLocalFileDoesNotCreateOrphanCandidate(t *testi
 	if err != nil {
 		t.Fatalf("buildRestorePlan() error = %v", err)
 	}
-	if len(plan.targets) != 1 {
-		t.Fatalf("target count = %d, want 1", len(plan.targets))
+	if len(plan.targets) != 0 {
+		t.Fatalf("target count = %d, want 0", len(plan.targets))
 	}
 	if len(plan.orphanCandidates) != 0 {
 		t.Fatalf("orphan candidate count = %d, want 0", len(plan.orphanCandidates))
-	}
-	if got := string(plan.targets[0].content); got != content {
-		t.Fatalf("target content = %q, want %q", got, content)
 	}
 }
 
@@ -615,8 +619,35 @@ func TestBuildRestorePlanInvalidManifestHashFails(t *testing.T) {
 	}
 }
 
-func TestSyncMissingBlobFails(t *testing.T) {
-	fixture := newSyncFixture(t, "repo-missing-blob", "test.md")
+func TestSyncMissingBlobWithMatchingLocalFileSucceeds(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-missing-blob-identical", "test.md")
+	fixture.writeArtifact("test.md", "snapshot body\n")
+
+	head := fixture.head()
+	fixture.mustSync()
+
+	storedManifest := fixture.readManifest(head)
+	if err := os.Remove(fixture.store.blobPath(storedManifest.Artifacts["test.md"])); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+
+	stdout, stderr, err := fixture.runSync()
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+	if stdout != prefixed("Restored artifacts at "+fixture.headDisplay()+"\n") {
+		t.Fatalf("stdout = %q, want %q", stdout, prefixed("Restored artifacts at "+fixture.headDisplay()+"\n"))
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if got := fixture.readArtifact("test.md"); got != "snapshot body\n" {
+		t.Fatalf("artifact = %q, want %q", got, "snapshot body\n")
+	}
+}
+
+func TestSyncMissingBlobFailsWhenLocalFileDiffers(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-missing-blob-different", "test.md")
 	fixture.writeArtifact("test.md", "snapshot body\n")
 
 	head := fixture.head()
