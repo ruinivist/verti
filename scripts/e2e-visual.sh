@@ -35,7 +35,6 @@ mkdir -p "$home_dir" "$repo_root/e2e/visual"
 )
 
 HOME="$home_dir" \
-GIT_EDITOR=true \
 TEST_REPO_DIR="$repo_dir" \
 VERTI_BIN="$bin_path" \
   "$repo_root/scripts/test-repo.sh"
@@ -57,7 +56,6 @@ for tape_path in "$@"; do
   (
     cd "$repo_root"
     HOME="$home_dir" \
-    GIT_EDITOR=true \
     PATH="$(dirname "$bin_path"):$PATH" \
     E2E_TEST_REPO="$repo_dir" \
       vhs "$visual_tape"

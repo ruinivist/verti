@@ -110,7 +110,6 @@ func setupTestRepo(t *testing.T, root, bin, repo, home string) {
 	cmd := exec.Command(filepath.Join(root, "scripts", "test-repo.sh"))
 	cmd.Dir = root
 	cmd.Env = withEnv(os.Environ(), map[string]string{
-		"GIT_EDITOR":    "true",
 		"HOME":          home,
 		"TEST_REPO_DIR": repo,
 		"VERTI_BIN":     bin,
@@ -128,7 +127,6 @@ func runVHS(t *testing.T, root, bin, tape, repo, home string) {
 	cmd.Dir = root
 	cmd.Env = withEnv(os.Environ(), map[string]string{
 		"E2E_TEST_REPO": repo,
-		"GIT_EDITOR":    "true",
 		"HOME":          home,
 		"PATH":          filepath.Dir(bin) + string(os.PathListSeparator) + os.Getenv("PATH"),
 	})

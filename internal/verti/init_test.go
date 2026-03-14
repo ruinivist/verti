@@ -1,6 +1,7 @@
 package verti
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,11 +11,8 @@ import (
 	"verti/internal/testutil"
 )
 
-func TestInitCreatesConfigAndHook(t *testing.T) {
+func TestInitCreatesConfigAndAppliesEmptyExcludeWithoutEditor(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
-	editor := testutil.NewFakeEditor(t, repoDir, "#!/bin/sh\ncat <<'EOF' > \"$1\"\n[verti]\nrepo_id = \"repo-1\"\nartifacts = [\"test.md\", \"docs\"]\nEOF\n")
-	t.Setenv("GIT_EDITOR", editor)
-	t.Setenv("EDITOR", "")
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		if err := Init("/tmp/verti"); err != nil {
@@ -27,14 +25,17 @@ func TestInitCreatesConfigAndHook(t *testing.T) {
 		}
 
 		text := string(config)
+		if !bytes.HasPrefix(config, []byte(verticonfigManagedHeaderForTest())) {
+			t.Fatalf("config missing managed header: %q", text)
+		}
 		if !strings.Contains(text, "[verti]\n") {
 			t.Fatalf("config missing table: %q", text)
 		}
 		if !strings.Contains(text, "repo_id = ") {
 			t.Fatalf("config missing repo_id: %q", text)
 		}
-		if !strings.Contains(text, "artifacts = [\"test.md\", \"docs\"]\n") {
-			t.Fatalf("config missing edited artifacts: %q", text)
+		if !strings.Contains(text, "artifacts = []\n") {
+			t.Fatalf("config missing empty artifacts: %q", text)
 		}
 
 		cfg, err := verticonfig.ReadConfig(filepath.Join(repoDir, configPath))
@@ -44,8 +45,8 @@ func TestInitCreatesConfigAndHook(t *testing.T) {
 		if cfg.RepoID == "" {
 			t.Fatal("ReadConfig() RepoID = empty, want non-empty")
 		}
-		if strings.Join(cfg.Artifacts, ",") != "test.md,docs" {
-			t.Fatalf("ReadConfig() Artifacts = %#v, want %#v", cfg.Artifacts, []string{"test.md", "docs"})
+		if len(cfg.Artifacts) != 0 {
+			t.Fatalf("ReadConfig() Artifacts = %#v, want empty", cfg.Artifacts)
 		}
 
 		hook, err := os.ReadFile(filepath.Join(repoDir, referenceTransactionPath))
@@ -71,8 +72,8 @@ func TestInitCreatesConfigAndHook(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
-		if string(exclude) != "test.md\ndocs\n" {
-			t.Fatalf("exclude = %q, want %q", string(exclude), "test.md\ndocs\n")
+		if string(exclude) != "" {
+			t.Fatalf("exclude = %q, want empty", string(exclude))
 		}
 	})
 }
@@ -80,9 +81,6 @@ func TestInitCreatesConfigAndHook(t *testing.T) {
 func TestInitPreservesExistingConfigAndRewritesHook(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
 	existingConfig := "[verti]\nrepo_id = \"existing\"\nartifacts = [\"foo\"]\n"
-	editor := testutil.NewFakeEditor(t, repoDir, "#!/bin/sh\nexit 0\n")
-	t.Setenv("GIT_EDITOR", editor)
-	t.Setenv("EDITOR", "")
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		if err := os.WriteFile(configPath, []byte(existingConfig), 0o644); err != nil {
@@ -136,19 +134,30 @@ func TestInitPreservesExistingConfigAndRewritesHook(t *testing.T) {
 	})
 }
 
-func TestInitAppendsOnlyNewArtifactsOnRepeat(t *testing.T) {
+func TestInitIsIdempotentOnRepeat(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
-	firstEditor := testutil.NewFakeEditor(t, repoDir, "#!/bin/sh\ncat <<'EOF' > \"$1\"\n[verti]\nrepo_id = \"repo-repeat\"\nartifacts = [\"foo\", \"bar\"]\nEOF\n")
-	secondEditor := testutil.NewFakeEditor(t, filepath.Join(repoDir, "second"), "#!/bin/sh\ncat <<'EOF' > \"$1\"\n[verti]\nrepo_id = \"repo-repeat\"\nartifacts = [\"foo\", \"bar\", \"baz\"]\nEOF\n")
-	t.Setenv("EDITOR", "")
 
 	testutil.WithWorkingDir(t, repoDir, func() {
-		t.Setenv("GIT_EDITOR", firstEditor)
 		if err := Init("/tmp/verti"); err != nil {
 			t.Fatalf("first Init() error = %v", err)
 		}
 
-		t.Setenv("GIT_EDITOR", secondEditor)
+		cfg, err := verticonfig.ReadConfig(configPath)
+		if err != nil {
+			t.Fatalf("ReadConfig() error = %v", err)
+		}
+		repoID := cfg.RepoID
+		if repoID == "" {
+			t.Fatal("ReadConfig() RepoID = empty, want non-empty")
+		}
+
+		if err := verticonfig.WriteConfig(configPath, verticonfig.Config{
+			RepoID:    repoID,
+			Artifacts: []string{"foo", "bar"},
+		}); err != nil {
+			t.Fatalf("WriteConfig() error = %v", err)
+		}
+
 		if err := Init("/tmp/verti"); err != nil {
 			t.Fatalf("second Init() error = %v", err)
 		}
@@ -157,8 +166,8 @@ func TestInitAppendsOnlyNewArtifactsOnRepeat(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
-		if string(exclude) != "foo\nbar\nbaz\n" {
-			t.Fatalf("exclude = %q, want %q", string(exclude), "foo\nbar\nbaz\n")
+		if string(exclude) != "foo\nbar\n" {
+			t.Fatalf("exclude = %q, want %q", string(exclude), "foo\nbar\n")
 		}
 	})
 }

@@ -24,8 +24,8 @@ The files are ignored by git by adding them to `.git/info/exclude` file automati
 - Clone the repo
 - `make build` to build the binary in `./build/verti`
 - add it to path
-- `verti init`. This opens the repo specific `verti.toml` config file. Can rerun to update the config/hooks as needed.
-- `verti add <path>` to register a file or directory without opening an editor.
+- `verti init`. This creates the repo specific `verti.toml` config file, installs or refreshes hooks, and reapplies the current config. Can rerun as needed.
+- `verti add <path>` to register a file or directory after init without opening an editor.
 
 # Dev notes
 

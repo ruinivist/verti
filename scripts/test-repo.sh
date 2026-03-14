@@ -17,36 +17,47 @@ git -C "$test_repo" config user.email "verti-test@example.com"
 printf "# test repo\n" > "$test_repo/README.md"
 printf "baseline\n" > "$test_repo/test.md"
 git -C "$test_repo" add README.md
-git -C "$test_repo" commit -m "chore: initial files"
+GIT_AUTHOR_DATE="2024-01-01T00:00:00Z" \
+GIT_COMMITTER_DATE="2024-01-01T00:00:00Z" \
+  git -C "$test_repo" commit -m "chore: initial files"
 
 printf "\n== init verti ==\n"
 (cd "$test_repo" && "$verti_bin" init)
+(cd "$test_repo" && "$verti_bin" add test.md)
 
 printf "\n== build main history ==\n"
 printf "main update 1\n" >> "$test_repo/README.md"
 printf "main update 1\n" >> "$test_repo/test.md"
 git -C "$test_repo" add README.md
-git -C "$test_repo" commit -m "feat: main update 1"
+GIT_AUTHOR_DATE="2024-01-01T00:01:00Z" \
+GIT_COMMITTER_DATE="2024-01-01T00:01:00Z" \
+  git -C "$test_repo" commit -m "feat: main update 1"
 feature2_base=$(git -C "$test_repo" rev-parse HEAD)
 
 printf "main update 2\n" >> "$test_repo/README.md"
 printf "main update 2\n" >> "$test_repo/test.md"
 git -C "$test_repo" add README.md
-git -C "$test_repo" commit -m "feat: main update 2"
+GIT_AUTHOR_DATE="2024-01-01T00:02:00Z" \
+GIT_COMMITTER_DATE="2024-01-01T00:02:00Z" \
+  git -C "$test_repo" commit -m "feat: main update 2"
 
 printf "\n== create feature branch ==\n"
 git -C "$test_repo" checkout -b feature
 printf "feature update\n" >> "$test_repo/README.md"
 printf "feature update\n" >> "$test_repo/test.md"
 git -C "$test_repo" add README.md
-git -C "$test_repo" commit -m "feat: feature branch work"
+GIT_AUTHOR_DATE="2024-01-01T00:03:00Z" \
+GIT_COMMITTER_DATE="2024-01-01T00:03:00Z" \
+  git -C "$test_repo" commit -m "feat: feature branch work"
 
 printf "\n== create feature2 branch ==\n"
 git -C "$test_repo" checkout -b feature2 "$feature2_base"
 printf "feature2 update\n" >> "$test_repo/README.md"
 printf "feature2 update\n" >> "$test_repo/test.md"
 git -C "$test_repo" add README.md
-git -C "$test_repo" commit -m "feat: feature2 branch work"
+GIT_AUTHOR_DATE="2024-01-01T00:04:00Z" \
+GIT_COMMITTER_DATE="2024-01-01T00:04:00Z" \
+  git -C "$test_repo" commit -m "feat: feature2 branch work"
 
 printf "\n== return to main ==\n"
 git -C "$test_repo" checkout main

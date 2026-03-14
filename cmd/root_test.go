@@ -106,8 +106,6 @@ func TestRun(t *testing.T) {
 
 			if tt.name == "init" || tt.name == "add" {
 				repoDir := testutil.NewRepo(t)
-				t.Setenv("GIT_EDITOR", testutil.NewFakeEditor(t, repoDir, "#!/bin/sh\nexit 0\n"))
-				t.Setenv("EDITOR", "")
 				testutil.WithWorkingDir(t, repoDir, run)
 				return
 			}
@@ -119,8 +117,6 @@ func TestRun(t *testing.T) {
 
 func TestRunInitExecution(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
-	t.Setenv("GIT_EDITOR", testutil.NewFakeEditor(t, repoDir, "#!/bin/sh\ncat <<'EOF' > \"$1\"\n[verti]\nrepo_id = \"repo-cmd\"\nartifacts = [\"test.md\", \"out/report.txt\"]\nEOF\n"))
-	t.Setenv("EDITOR", "")
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		stdout, stderr := captureOutput(t, func() {
@@ -140,16 +136,16 @@ func TestRunInitExecution(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read config: %v", err)
 		}
-		if !bytes.Contains(config, []byte("repo_id = \"repo-cmd\"\n")) || !bytes.Contains(config, []byte("artifacts = [\"test.md\", \"out/report.txt\"]\n")) {
-			t.Fatalf("config missing edited content: %q", string(config))
+		if !bytes.Contains(config, []byte("repo_id = ")) || !bytes.Contains(config, []byte("artifacts = []\n")) {
+			t.Fatalf("config missing bootstrapped content: %q", string(config))
 		}
 
 		exclude, err := os.ReadFile(filepath.Join(repoDir, ".git", "info", "exclude"))
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
-		if string(exclude) != "test.md\nout/report.txt\n" {
-			t.Fatalf("exclude = %q, want %q", string(exclude), "test.md\nout/report.txt\n")
+		if string(exclude) != "" {
+			t.Fatalf("exclude = %q, want empty", string(exclude))
 		}
 	})
 }

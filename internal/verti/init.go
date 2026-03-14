@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 
 	verticonfig "verti/internal/config"
-	"verti/internal/editor"
 	"verti/internal/gitrepo"
 	"verti/internal/output"
 )
@@ -23,10 +22,6 @@ const (
 func Init(exePath string) error {
 	if err := ensureInitialized(exePath); err != nil {
 		return err
-	}
-
-	if err := editor.Open(configPath); err != nil {
-		return fmt.Errorf("failed to open editor: %v", err)
 	}
 
 	return applyConfig()

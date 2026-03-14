@@ -1,5 +1,5 @@
-Output e2e/tests/artifacts/hello-sync.ascii
-Output e2e/visual/hello-sync.gif
+Output e2e/tests/artifacts/basic.ascii
+Output e2e/visual/basic.gif
 
 Set Shell "bash"
 Set FontSize 18
