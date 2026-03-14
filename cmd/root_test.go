@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	verticonfig "verti/internal/config"
 	"verti/internal/output"
@@ -186,6 +187,7 @@ func TestRunSyncSnapshotAndRestore(t *testing.T) {
 
 	var manifest struct {
 		Version   int               `json:"version"`
+		CreatedAt string            `json:"created_at"`
 		Artifacts map[string]string `json:"artifacts"`
 	}
 	if err := json.Unmarshal(manifestContent, &manifest); err != nil {
@@ -193,6 +195,12 @@ func TestRunSyncSnapshotAndRestore(t *testing.T) {
 	}
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
+	}
+	if manifest.CreatedAt == "" {
+		t.Fatal("manifest created_at is empty")
+	}
+	if _, err := time.Parse(time.RFC3339, manifest.CreatedAt); err != nil {
+		t.Fatalf("manifest created_at parse error = %v", err)
 	}
 	if got := manifest.Artifacts["test.md"]; got != wantHash {
 		t.Fatalf("manifest hash = %q, want %q", got, wantHash)
@@ -291,6 +299,7 @@ func TestRunSyncSnapshotAndRestoreDirectoryArtifact(t *testing.T) {
 
 	var manifest struct {
 		Version   int               `json:"version"`
+		CreatedAt string            `json:"created_at"`
 		Artifacts map[string]string `json:"artifacts"`
 	}
 	if err := json.Unmarshal(manifestContent, &manifest); err != nil {
@@ -298,6 +307,12 @@ func TestRunSyncSnapshotAndRestoreDirectoryArtifact(t *testing.T) {
 	}
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
+	}
+	if manifest.CreatedAt == "" {
+		t.Fatal("manifest created_at is empty")
+	}
+	if _, err := time.Parse(time.RFC3339, manifest.CreatedAt); err != nil {
+		t.Fatalf("manifest created_at parse error = %v", err)
 	}
 	if got := manifest.Artifacts["docs/guide.md"]; got != sha256Hex([]byte("guide body\n")) {
 		t.Fatalf("guide hash = %q, want %q", got, sha256Hex([]byte("guide body\n")))

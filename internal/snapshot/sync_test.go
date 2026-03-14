@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	verticonfig "verti/internal/config"
 	"verti/internal/output"
@@ -60,6 +61,12 @@ func TestSyncSnapshotsAndRestoresConfiguredArtifacts(t *testing.T) {
 	wantHash := hashContent([]byte("snapshot body\n"))
 	if storedManifest.Version != manifestVersion {
 		t.Fatalf("manifest version = %d, want %d", storedManifest.Version, manifestVersion)
+	}
+	if storedManifest.CreatedAt == "" {
+		t.Fatal("manifest created_at is empty")
+	}
+	if _, err := time.Parse(time.RFC3339, storedManifest.CreatedAt); err != nil {
+		t.Fatalf("manifest created_at parse error = %v", err)
 	}
 	if got := storedManifest.Artifacts["test.md"]; got != wantHash {
 		t.Fatalf("manifest hash = %q, want %q", got, wantHash)
@@ -412,6 +419,23 @@ func TestSyncNoArtifactsWarns(t *testing.T) {
 	}
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+}
+
+func TestLoadManifestRejectsInvalidCreatedAt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.json")
+	writeManifestFile(t, path, manifest{
+		Version:   manifestVersion,
+		CreatedAt: "not-a-time",
+		Artifacts: map[string]string{},
+	})
+
+	_, err := loadManifest(path)
+	if err == nil {
+		t.Fatal("loadManifest() error = nil, want error")
+	}
+	if err.Error() != "invalid manifest created_at: parsing time \"not-a-time\" as \"2006-01-02T15:04:05Z07:00\": cannot parse \"not-a-time\" as \"2006\"" {
+		t.Fatalf("loadManifest() error = %q", err.Error())
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	verticonfig "verti/internal/config"
 	"verti/internal/gitrepo"
@@ -22,6 +23,7 @@ const manifestVersion = 1
 
 type manifest struct {
 	Version   int               `json:"version"`
+	CreatedAt string            `json:"created_at,omitempty"`
 	Artifacts map[string]string `json:"artifacts"`
 }
 
@@ -107,6 +109,7 @@ func snapshotArtifacts(artifacts []string) (manifest, map[string][]byte, []strin
 
 	storedManifest := manifest{
 		Version:   manifestVersion,
+		CreatedAt: manifestTimestamp(time.Now()),
 		Artifacts: make(map[string]string, len(expanded)),
 	}
 	blobContents := make(map[string][]byte, len(expanded))
@@ -257,6 +260,13 @@ func loadManifest(path string) (manifest, error) {
 	if storedManifest.Version != manifestVersion {
 		return manifest{}, fmt.Errorf("unsupported manifest version: %d", storedManifest.Version)
 	}
+	if storedManifest.CreatedAt != "" {
+		parsedCreatedAt, err := time.Parse(time.RFC3339, storedManifest.CreatedAt)
+		if err != nil {
+			return manifest{}, fmt.Errorf("invalid manifest created_at: %v", err)
+		}
+		storedManifest.CreatedAt = parsedCreatedAt.UTC().Format(time.RFC3339)
+	}
 	if storedManifest.Artifacts == nil {
 		storedManifest.Artifacts = map[string]string{}
 	}
@@ -396,6 +406,10 @@ func uniqueStrings(paths []string) []string {
 	}
 
 	return out
+}
+
+func manifestTimestamp(at time.Time) string {
+	return at.UTC().Format(time.RFC3339)
 }
 
 func manifestRestoreArtifacts(storedManifest manifest) []restoreArtifact {
