@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	verticonfig "verti/internal/config"
 	"verti/internal/gitrepo"
 	"verti/internal/output"
@@ -21,6 +23,7 @@ import (
 
 const storageSubdir = ".verti/repos"
 const manifestVersion = 1
+const orphanRetentionCount = 20
 
 type manifest struct {
 	Version   int               `json:"version"`
@@ -45,16 +48,12 @@ type orphanCandidate struct {
 	content []byte
 }
 
-func Sync(cfg verticonfig.Config) error {
-	artifacts, err := normalizeArtifacts(cfg.Artifacts)
-	if err != nil {
-		return err
-	}
-	if len(artifacts) == 0 {
-		output.Println("no artifacts configured")
-		return nil
-	}
+type namedManifest struct {
+	id       string
+	manifest manifest
+}
 
+func Sync(cfg verticonfig.Config) error {
 	head, err := gitrepo.Head()
 	if err != nil {
 		return fmt.Errorf("failed to get head: %v", err)
@@ -70,6 +69,22 @@ func Sync(cfg verticonfig.Config) error {
 	}
 
 	store := newStore(home, cfg.RepoID)
+	if err := store.ensureDirs(); err != nil {
+		return err
+	}
+	if err := cleanupOrphans(store); err != nil {
+		return err
+	}
+
+	artifacts, err := normalizeArtifacts(cfg.Artifacts)
+	if err != nil {
+		return err
+	}
+	if len(artifacts) == 0 {
+		output.Println("no artifacts configured")
+		return nil
+	}
+
 	manifestPath := store.manifestPath(head)
 	info, err := os.Stat(manifestPath)
 	if err == nil {
@@ -90,10 +105,6 @@ func Sync(cfg verticonfig.Config) error {
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("failed to check manifest: %v", err)
-	}
-
-	if err := store.ensureDirs(); err != nil {
-		return err
 	}
 
 	storedManifest, blobContents, warnings, err := snapshotArtifacts(artifacts)
@@ -147,7 +158,88 @@ func restoreArtifacts(store store, storedManifest manifest) error {
 	if err != nil {
 		return err
 	}
+	if err := createOrphanSnapshot(store, plan.orphanCandidates); err != nil {
+		return err
+	}
 	return applyRestorePlan(plan)
+}
+
+func createOrphanSnapshot(store store, candidates []orphanCandidate) error {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	id := uuid.NewString()
+	storedManifest := manifest{
+		Version:   manifestVersion,
+		CreatedAt: manifestTimestamp(time.Now()),
+		Artifacts: make(map[string]string, len(candidates)),
+	}
+
+	for _, candidate := range candidates {
+		storedManifest.Artifacts[candidate.path] = candidate.hash
+		if err := writeBlob(store, candidate.hash, candidate.content); err != nil {
+			return err
+		}
+	}
+
+	return writeOrphanManifest(store, id, storedManifest)
+}
+
+func writeOrphanManifest(store store, id string, storedManifest manifest) error {
+	if err := writeManifest(store.orphanManifestPath(id), storedManifest); err != nil {
+		return fmt.Errorf("failed to write orphan manifest: %v", err)
+	}
+	return nil
+}
+
+func loadOrphanManifests(store store) ([]namedManifest, error) {
+	paths, err := store.orphanManifestPaths()
+	if err != nil {
+		return nil, err
+	}
+
+	manifests := make([]namedManifest, 0, len(paths))
+	for _, path := range paths {
+		storedManifest, err := loadManifest(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load orphan manifest %s: %v", orphanIDFromPath(path), err)
+		}
+		if storedManifest.CreatedAt == "" {
+			return nil, fmt.Errorf("failed to load orphan manifest %s: missing manifest created_at", orphanIDFromPath(path))
+		}
+		manifests = append(manifests, namedManifest{
+			id:       orphanIDFromPath(path),
+			manifest: storedManifest,
+		})
+	}
+
+	sort.Slice(manifests, func(i, j int) bool {
+		if manifests[i].manifest.CreatedAt == manifests[j].manifest.CreatedAt {
+			return manifests[i].id < manifests[j].id
+		}
+		return manifests[i].manifest.CreatedAt > manifests[j].manifest.CreatedAt
+	})
+
+	return manifests, nil
+}
+
+func cleanupOrphans(store store) error {
+	manifests, err := loadOrphanManifests(store)
+	if err != nil {
+		return err
+	}
+	if len(manifests) <= orphanRetentionCount {
+		return nil
+	}
+
+	for _, stale := range manifests[orphanRetentionCount:] {
+		if err := store.deleteOrphanManifest(stale.id); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func expandArtifacts(artifacts []string) ([]string, []string, error) {

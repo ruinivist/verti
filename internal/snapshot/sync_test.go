@@ -3,12 +3,16 @@ package snapshot
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 
 	verticonfig "verti/internal/config"
 	"verti/internal/output"
@@ -73,6 +77,32 @@ func TestSyncSnapshotsAndRestoresConfiguredArtifacts(t *testing.T) {
 	}
 	if got := fixture.readBlob(wantHash); got != "snapshot body\n" {
 		t.Fatalf("blob = %q, want %q", got, "snapshot body\n")
+	}
+
+	orphanManifests := fixture.readOrphanManifests()
+	if len(orphanManifests) != 1 {
+		t.Fatalf("orphan manifest count = %d, want 1", len(orphanManifests))
+	}
+	for id, storedOrphan := range orphanManifests {
+		if _, err := uuid.Parse(id); err != nil {
+			t.Fatalf("orphan manifest id %q parse error = %v", id, err)
+		}
+		if storedOrphan.CreatedAt == "" {
+			t.Fatal("orphan manifest created_at is empty")
+		}
+		if _, err := time.Parse(time.RFC3339, storedOrphan.CreatedAt); err != nil {
+			t.Fatalf("orphan manifest created_at parse error = %v", err)
+		}
+		if got := storedOrphan.Artifacts["test.md"]; got != hashContent([]byte("edited body\n")) {
+			t.Fatalf("orphan manifest hash = %q, want %q", got, hashContent([]byte("edited body\n")))
+		}
+		hash, ok := storedOrphan.Artifacts["test.md"]
+		if !ok {
+			t.Fatal("orphan manifest missing test.md hash")
+		}
+		if got := fixture.readBlob(hash); got != "edited body\n" {
+			t.Fatalf("orphan blob = %q, want %q", got, "edited body\n")
+		}
 	}
 }
 
@@ -207,6 +237,19 @@ func TestSyncSnapshotsAndRestoresConfiguredDirectory(t *testing.T) {
 	if got := fixture.readArtifact("docs/extra.txt"); got != "leave me alone\n" {
 		t.Fatalf("extra = %q, want %q", got, "leave me alone\n")
 	}
+
+	orphanManifests := fixture.readOrphanManifests()
+	if len(orphanManifests) != 1 {
+		t.Fatalf("orphan manifest count = %d, want 1", len(orphanManifests))
+	}
+	for _, storedOrphan := range orphanManifests {
+		if len(storedOrphan.Artifacts) != 1 {
+			t.Fatalf("orphan manifest entries = %d, want 1", len(storedOrphan.Artifacts))
+		}
+		if got := storedOrphan.Artifacts["docs/guide.md"]; got != hashContent([]byte("guide edited\n")) {
+			t.Fatalf("orphan manifest hash = %q, want %q", got, hashContent([]byte("guide edited\n")))
+		}
+	}
 }
 
 func TestSyncRestoresConfiguredDirectoryWhenMissingLocally(t *testing.T) {
@@ -232,6 +275,61 @@ func TestSyncRestoresConfiguredDirectoryWhenMissingLocally(t *testing.T) {
 	}
 	if got := fixture.readArtifact("docs/guide.md"); got != "guide v1\n" {
 		t.Fatalf("guide = %q, want %q", got, "guide v1\n")
+	}
+	if got := fixture.orphanManifestCount(); got != 0 {
+		t.Fatalf("orphan manifest count = %d, want 0", got)
+	}
+}
+
+func TestSyncRestoreWithMultipleDifferingFilesCreatesSingleOrphanManifest(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-multi-orphan", "docs")
+	fixture.writeArtifact("docs/guide.md", "guide v1\n")
+	fixture.writeArtifact("docs/notes.txt", "notes v1\n")
+
+	headDisplay := fixture.headDisplay()
+	fixture.mustSync()
+
+	fixture.writeArtifact("docs/guide.md", "guide edited\n")
+	fixture.writeArtifact("docs/notes.txt", "notes edited\n")
+
+	stdout, stderr, err := fixture.runSync()
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+	if stdout != prefixed("Restored artifacts at "+headDisplay+"\n") {
+		t.Fatalf("stdout = %q, want %q", stdout, prefixed("Restored artifacts at "+headDisplay+"\n"))
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+
+	orphanManifests := fixture.readOrphanManifests()
+	if len(orphanManifests) != 1 {
+		t.Fatalf("orphan manifest count = %d, want 1", len(orphanManifests))
+	}
+	for _, storedOrphan := range orphanManifests {
+		if len(storedOrphan.Artifacts) != 2 {
+			t.Fatalf("orphan manifest entries = %d, want 2", len(storedOrphan.Artifacts))
+		}
+		if got := storedOrphan.Artifacts["docs/guide.md"]; got != hashContent([]byte("guide edited\n")) {
+			t.Fatalf("guide orphan hash = %q, want %q", got, hashContent([]byte("guide edited\n")))
+		}
+		if got := storedOrphan.Artifacts["docs/notes.txt"]; got != hashContent([]byte("notes edited\n")) {
+			t.Fatalf("notes orphan hash = %q, want %q", got, hashContent([]byte("notes edited\n")))
+		}
+	}
+}
+
+func TestSyncRestoreWithIdenticalLocalFileCreatesNoOrphanSnapshot(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-no-orphan-identical", "test.md")
+	fixture.writeArtifact("test.md", "snapshot body\n")
+	fixture.mustSync()
+
+	if _, _, err := fixture.runSync(); err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+	if got := fixture.orphanManifestCount(); got != 0 {
+		t.Fatalf("orphan manifest count = %d, want 0", got)
 	}
 }
 
@@ -599,6 +697,103 @@ func TestSyncNoArtifactsWarns(t *testing.T) {
 	}
 }
 
+func TestSyncNoArtifactsRunsCleanupFirst(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-empty-cleanup")
+	fixture.seedOrphanManifests(21, time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC), time.Minute)
+
+	stdout, stderr, err := fixture.runSync()
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+	if stdout != prefixed("no artifacts configured\n") {
+		t.Fatalf("stdout = %q, want %q", stdout, prefixed("no artifacts configured\n"))
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if got := fixture.orphanManifestCount(); got != orphanRetentionCount {
+		t.Fatalf("orphan manifest count = %d, want %d", got, orphanRetentionCount)
+	}
+}
+
+func TestSyncFailsOnInvalidOrphanManifestBeforeSnapshotOrRestore(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-invalid-orphan")
+	if err := fixture.store.ensureDirs(); err != nil {
+		t.Fatalf("ensureDirs() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(fixture.store.orphansPath(), "bad.json"), []byte("{not-json\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	stdout, stderr, err := fixture.runSync()
+	if err == nil {
+		t.Fatal("Sync() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "failed to load orphan manifest bad") {
+		t.Fatalf("Sync() error = %q, want invalid orphan manifest error", err.Error())
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+}
+
+func TestCleanupOrphansKeepsNewestTwentyAndDeletesOnlyManifestFiles(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-cleanup")
+	ids := fixture.seedOrphanManifests(22, time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC), time.Minute)
+	oldestManifest := fixture.readOrphanManifest(ids[21])
+	oldestBlobHash := oldestManifest.Artifacts["artifact-21.txt"]
+
+	if err := cleanupOrphans(fixture.store); err != nil {
+		t.Fatalf("cleanupOrphans() error = %v", err)
+	}
+
+	gotIDs := fixture.orphanManifestIDs()
+	if len(gotIDs) != orphanRetentionCount {
+		t.Fatalf("orphan manifest count = %d, want %d", len(gotIDs), orphanRetentionCount)
+	}
+	if slices.Contains(gotIDs, ids[20]) || slices.Contains(gotIDs, ids[21]) {
+		t.Fatalf("cleanup kept stale orphan ids: %#v", gotIDs)
+	}
+	if _, err := os.Stat(fixture.store.blobPath(oldestBlobHash)); err != nil {
+		t.Fatalf("blob stat error = %v, want blob retained", err)
+	}
+}
+
+func TestCleanupOrphansTieBreaksByIDAscending(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-cleanup-tie")
+	timestamp := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+	ids := make([]string, 0, 22)
+	for i := 21; i >= 0; i-- {
+		id := fmt.Sprintf("orphan-%02d", i)
+		fixture.writeOrphanManifest(id, manifest{
+			Version:   manifestVersion,
+			CreatedAt: manifestTimestamp(timestamp),
+			Artifacts: map[string]string{
+				fmt.Sprintf("artifact-%02d.txt", i): fixture.writeBlobWithHash(fmt.Sprintf("content-%02d\n", i)),
+			},
+		})
+		ids = append(ids, id)
+	}
+
+	if err := cleanupOrphans(fixture.store); err != nil {
+		t.Fatalf("cleanupOrphans() error = %v", err)
+	}
+
+	gotIDs := fixture.orphanManifestIDs()
+	wantIDs := []string{
+		"orphan-00", "orphan-01", "orphan-02", "orphan-03", "orphan-04",
+		"orphan-05", "orphan-06", "orphan-07", "orphan-08", "orphan-09",
+		"orphan-10", "orphan-11", "orphan-12", "orphan-13", "orphan-14",
+		"orphan-15", "orphan-16", "orphan-17", "orphan-18", "orphan-19",
+	}
+	if !slices.Equal(gotIDs, wantIDs) {
+		t.Fatalf("cleanup kept ids = %#v, want %#v", gotIDs, wantIDs)
+	}
+}
+
 func TestLoadManifestRejectsInvalidCreatedAt(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.json")
 	writeManifestFile(t, path, manifest{
@@ -658,6 +853,22 @@ func TestApplyRestorePlanUsesPlannedContent(t *testing.T) {
 	}
 	if got := fixture.readArtifact("test.md"); got != "original blob content\n" {
 		t.Fatalf("artifact = %q, want %q", got, "original blob content\n")
+	}
+}
+
+func TestLoadOrphanManifestsRejectsMissingCreatedAt(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-orphan-missing-created")
+	fixture.writeOrphanManifest("orphan-1", manifest{
+		Version:   manifestVersion,
+		Artifacts: map[string]string{},
+	})
+
+	_, err := loadOrphanManifests(fixture.store)
+	if err == nil {
+		t.Fatal("loadOrphanManifests() error = nil, want error")
+	}
+	if err.Error() != "failed to load orphan manifest orphan-1: missing manifest created_at" {
+		t.Fatalf("loadOrphanManifests() error = %q", err.Error())
 	}
 }
 
@@ -726,9 +937,75 @@ func (f syncFixture) readManifest(commit string) manifest {
 	return readManifest(f.t, f.store.manifestPath(commit))
 }
 
+func (f syncFixture) readOrphanManifest(id string) manifest {
+	f.t.Helper()
+	return readManifest(f.t, f.store.orphanManifestPath(id))
+}
+
+func (f syncFixture) readOrphanManifests() map[string]manifest {
+	f.t.Helper()
+
+	paths, err := f.store.orphanManifestPaths()
+	if err != nil {
+		f.t.Fatalf("orphanManifestPaths() error = %v", err)
+	}
+
+	out := make(map[string]manifest, len(paths))
+	for _, path := range paths {
+		out[orphanIDFromPath(path)] = readManifest(f.t, path)
+	}
+	return out
+}
+
+func (f syncFixture) orphanManifestCount() int {
+	f.t.Helper()
+	return len(f.readOrphanManifests())
+}
+
+func (f syncFixture) orphanManifestIDs() []string {
+	f.t.Helper()
+
+	paths, err := f.store.orphanManifestPaths()
+	if err != nil {
+		f.t.Fatalf("orphanManifestPaths() error = %v", err)
+	}
+
+	ids := make([]string, 0, len(paths))
+	for _, path := range paths {
+		ids = append(ids, orphanIDFromPath(path))
+	}
+	return ids
+}
+
 func (f syncFixture) writeManifest(commit string, storedManifest manifest) {
 	f.t.Helper()
 	writeManifestFile(f.t, f.store.manifestPath(commit), storedManifest)
+}
+
+func (f syncFixture) writeOrphanManifest(id string, storedManifest manifest) {
+	f.t.Helper()
+	if err := f.store.ensureDirs(); err != nil {
+		f.t.Fatalf("ensureDirs() error = %v", err)
+	}
+	writeManifestFile(f.t, f.store.orphanManifestPath(id), storedManifest)
+}
+
+func (f syncFixture) seedOrphanManifests(count int, newest time.Time, step time.Duration) []string {
+	f.t.Helper()
+
+	ids := make([]string, 0, count)
+	for i := 0; i < count; i++ {
+		id := fmt.Sprintf("orphan-%02d", i)
+		ids = append(ids, id)
+		f.writeOrphanManifest(id, manifest{
+			Version:   manifestVersion,
+			CreatedAt: manifestTimestamp(newest.Add(-time.Duration(i) * step)),
+			Artifacts: map[string]string{
+				fmt.Sprintf("artifact-%d.txt", i): f.writeBlobWithHash(fmt.Sprintf("blob-%d\n", i)),
+			},
+		})
+	}
+	return ids
 }
 
 func (f syncFixture) runSync() (string, string, error) {
