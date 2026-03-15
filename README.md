@@ -40,3 +40,5 @@ Run `make e2e-record MODE=no-repo NAME=test_name` to add a test that starts in t
 Type out the commands, sanity check the results to freeze behavior.
 
 `make e2e-test` to run the tests.
+
+To see what each e2e test run looked like at the end, you can just `cat` it.
