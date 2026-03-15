@@ -1,0 +1,50 @@
+[?2004h$ [?2004l
+[?2004h$ [?2004l
+[?2004h$ [?2004l
+[?2004h$ [?2004l
+[33mhint: Using 'master' as the name for the initial branch. This default branch name[m
+[33mhint: will change to "main" in Git 3.0. To configure the initial branch name[m
+[33mhint: to use in all of your new repositories, which will suppress this warning,[m
+[33mhint: call:[m
+[33mhint:[m
+[33mhint: 	git config --global init.defaultBranch <name>[m
+[33mhint:[m
+[33mhint: Names commonly chosen instead of 'master' are 'main', 'trunk' and[m
+[33mhint: 'development'. The just-created branch can be renamed via this command:[m
+[33mhint:[m
+[33mhint: 	git branch -m <name>[m
+[33mhint:[m
+[33mhint: Disable this message with "git config set advice.defaultBranchName false"[m
+Initialized empty Git repository in /tmp/verti-e2e-record-Gppzfk/replay-home/repo/.git/
+[?2004h$ [?2004l
+[?2004h$ [?2004l
+[master (root-commit) 7bd145c] init
+ 1 file changed, 0 insertions(+), 0 deletions(-)
+ create mode 100644 README.md
+[?2004h$ [?2004l
+[48;2;217;119;6m[38;2;255;255;255m [3mVerti[0m[48;2;217;119;6m[38;2;255;255;255m [0m [38;2;217;119;6mDone initialising...[0m
+[?2004h$ [?2004l
+[48;2;217;119;6m[38;2;255;255;255m [3mVerti[0m[48;2;217;119;6m[38;2;255;255;255m [0m [38;2;217;119;6mWarn: path doesn't exist but marking it as artifact for future.[0m
+[48;2;217;119;6m[38;2;255;255;255m [3mVerti[0m[48;2;217;119;6m[38;2;255;255;255m [0m [38;2;217;119;6mAdded artifact: test.md[0m
+[?2004h$ [?2004l
+[?2004h$ [?2004l
+[?2004h$ [?2004l
+[?2004h$ [?2004l
+.git/info/exclude:8:/test.md	test.md
+[?2004h$ [?2004l
+[?2004h$ [?2004l
+[48;2;217;119;6m[38;2;255;255;255m [3mVerti[0m[48;2;217;119;6m[38;2;255;255;255m [0m [38;2;217;119;6mAdded artifact: docs/[0m
+[?2004h$ [?2004l
+.git/info/exclude:9:/docs/	docs/test.md
+[?2004h$ [?2004l
+[?2004h$ [?2004l
+.git/info/exclude:9:/docs/	docs
+[?2004h$ [?2004l
+docs  README.md  test.md
+[?2004h$ [?2004l
+[?2004h$ [?2004l
+test.md
+[?2004h$ [?2004l
+[?2004h$ [?2004l
+exit
+

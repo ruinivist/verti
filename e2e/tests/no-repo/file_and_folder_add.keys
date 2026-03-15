@@ -1,0 +1,1 @@
+mkdir repocd repotouch README.mdgit initgit add .git commit -m "init"verti initverti add test.mdtouch test.mdmkdir docstouch docs/test.mdgit check-ignore -v test.mdgit check-ginoreignore -v tdocs/tes.t.mdverti add docs/git check-ignmorore -v docs/test.mdtouch docs.git check-ignore -=vv docslscd docslscd ..
