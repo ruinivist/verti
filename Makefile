@@ -1,4 +1,4 @@
-.PHONY: build test test-repo e2e-visual
+.PHONY: build test test-repo e2e-record e2e-test
 
 BIN := build/verti
 
@@ -12,5 +12,8 @@ test:
 test-repo: build
 	./scripts/test-repo.sh
 
-e2e-visual:
-	./scripts/e2e-visual.sh
+e2e-record:
+	./scripts/e2e-record.sh
+
+e2e-test:
+	go test ./e2e/...

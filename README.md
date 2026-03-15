@@ -34,3 +34,8 @@ The files are ignored by git by adding them to `.git/info/exclude` file automati
 A `test-repo` directory can be created with `make test-repo` command. Inside that there's a main branch and a `feature` branch for merge and a `feature2` branch for rebase.
 
 ### Adding an E2E test
+
+Run `make e2e-record NAME=test_name` to add a new test.
+Type out the commands, sanity check the results to freeze behavior.
+
+`make e2e-test` to run the tests.

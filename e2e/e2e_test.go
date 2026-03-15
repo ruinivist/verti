@@ -1,26 +1,25 @@
 package e2e_test
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/google/go-cmp/cmp"
 )
 
 const cliBuildTarget = "./cmd/verti"
 
 type scenario struct {
 	name   string
-	tape   string
+	keys   string
 	golden string
-	ascii  string
+	out    string
 }
 
-func TestVHSE2E(t *testing.T) {
+func TestScriptE2E(t *testing.T) {
 	root := repoRoot(t)
 	bin := buildBinary(t, root)
 	scenarios := discoverScenarios(t, root)
@@ -37,13 +36,13 @@ func TestVHSE2E(t *testing.T) {
 			}
 
 			setupTestRepo(t, root, bin, repo, home)
-			runVHS(t, root, bin, tc.tape, repo, home)
+			runScriptReplay(t, root, bin, tc.keys, tc.out, repo, home)
 
-			got := readFile(t, tc.ascii)
+			got := readFile(t, tc.out)
 			want := readFile(t, tc.golden)
 
-			if diff := cmp.Diff(want, got); diff != "" {
-				t.Fatalf("ascii output mismatch (-want +got):\n%s", diff)
+			if got != want {
+				t.Fatalf("output mismatch\nwant:\n%s\n\ngot:\n%s", want, got)
 			}
 		})
 	}
@@ -80,24 +79,24 @@ func buildBinary(t *testing.T, root string) string {
 func discoverScenarios(t *testing.T, root string) []scenario {
 	t.Helper()
 
-	tapes, err := filepath.Glob(filepath.Join(root, "e2e", "tests", "*.tape"))
+	keysFiles, err := filepath.Glob(filepath.Join(root, "e2e", "tests", "*.keys"))
 	if err != nil {
-		t.Fatalf("glob tapes: %v", err)
+		t.Fatalf("glob keys: %v", err)
 	}
-	if len(tapes) == 0 {
-		t.Fatal("no e2e tapes found")
+	if len(keysFiles) == 0 {
+		t.Fatal("no e2e scenarios found")
 	}
 
-	slices.Sort(tapes)
+	slices.Sort(keysFiles)
 
-	scenarios := make([]scenario, 0, len(tapes))
-	for _, tape := range tapes {
-		name := strings.TrimSuffix(filepath.Base(tape), filepath.Ext(tape))
+	scenarios := make([]scenario, 0, len(keysFiles))
+	for _, keys := range keysFiles {
+		name := strings.TrimSuffix(filepath.Base(keys), filepath.Ext(keys))
 		scenarios = append(scenarios, scenario{
 			name:   name,
-			tape:   tape,
-			golden: filepath.Join(root, "e2e", "tests", name+".golden.ascii"),
-			ascii:  filepath.Join(root, "e2e", "tests", "artifacts", name+".ascii"),
+			keys:   keys,
+			golden: filepath.Join(root, "e2e", "tests", name+".golden.out"),
+			out:    filepath.Join(root, "e2e", "tests", "artifacts", name+".out"),
 		})
 	}
 
@@ -120,20 +119,58 @@ func setupTestRepo(t *testing.T, root, bin, repo, home string) {
 	}
 }
 
-func runVHS(t *testing.T, root, bin, tape, repo, home string) {
+func runScriptReplay(t *testing.T, root, bin, keysPath, outPath, repo, home string) {
 	t.Helper()
 
-	cmd := exec.Command("vhs", tape)
+	keys := readRawFile(t, keysPath)
+	if bytes.HasSuffix(keys, []byte{'\n'}) {
+		keys = keys[:len(keys)-1]
+	}
+	rawOutPath := outPath + ".raw"
+	shellPath := filepath.Join(root, "scripts", "e2e-shell.sh")
+
+	cmd := exec.Command("script",
+		"-q",
+		"-e",
+		"-E", "never",
+		"-O", rawOutPath,
+		"-c", shellPath,
+	)
 	cmd.Dir = root
 	cmd.Env = withEnv(os.Environ(), map[string]string{
 		"E2E_TEST_REPO": repo,
 		"HOME":          home,
+		"HISTFILE":      "/dev/null",
 		"PATH":          filepath.Dir(bin) + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"TERM":          "xterm-256color",
 	})
+	cmd.Stdin = bytes.NewReader(keys)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("run vhs %s: %v\n%s", tape, err, out)
+		t.Fatalf("run script replay %s: %v\n%s", keysPath, err, out)
 	}
+
+	cleaned := stripScriptWrapper(t, readRawFile(t, rawOutPath))
+	if err := os.WriteFile(outPath, cleaned, 0o644); err != nil {
+		t.Fatalf("write %s: %v", outPath, err)
+	}
+}
+
+func stripScriptWrapper(t *testing.T, data []byte) []byte {
+	t.Helper()
+
+	start := bytes.IndexByte(data, '\n')
+	if start == -1 {
+		t.Fatalf("script log missing header newline")
+	}
+	data = data[start+1:]
+
+	end := bytes.LastIndex(data, []byte("\nScript done on "))
+	if end == -1 {
+		t.Fatalf("script log missing footer")
+	}
+
+	return data[:end+1]
 }
 
 func withEnv(base []string, overrides map[string]string) []string {
@@ -158,10 +195,16 @@ func withEnv(base []string, overrides map[string]string) []string {
 func readFile(t *testing.T, path string) string {
 	t.Helper()
 
+	return string(readRawFile(t, path))
+}
+
+func readRawFile(t *testing.T, path string) []byte {
+	t.Helper()
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
 
-	return string(data)
+	return data
 }
