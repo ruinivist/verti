@@ -106,6 +106,9 @@ func TestRun(t *testing.T) {
 
 			if tt.name == "init" || tt.name == "add" {
 				repoDir := testutil.NewRepo(t)
+				if tt.name == "add" {
+					testutil.WriteFile(t, filepath.Join(repoDir, "notes.txt"), "notes\n")
+				}
 				testutil.WithWorkingDir(t, repoDir, run)
 				return
 			}
@@ -154,6 +157,7 @@ func TestRunAddExecution(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
 	t.Setenv("GIT_EDITOR", testutil.NewFakeEditor(t, repoDir, "#!/bin/sh\nexit 99\n"))
 	t.Setenv("EDITOR", "")
+	testutil.WriteFile(t, filepath.Join(repoDir, "notes.txt"), "notes\n")
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		stdout, stderr := captureOutput(t, func() {

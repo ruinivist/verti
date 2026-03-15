@@ -33,6 +33,14 @@ func Add(exePath, artifactPath string) error {
 		return fmt.Errorf("invalid artifact path %q: %v", artifactPath, err)
 	}
 
+	if _, err := os.Stat(cleaned); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			output.Println("Warn: path doesn't exist but marking it as artifact for future.")
+		} else {
+			return fmt.Errorf("failed to check artifact %s: %v", cleaned, err)
+		}
+	}
+
 	if err := ensureInitialized(exePath); err != nil {
 		return err
 	}
