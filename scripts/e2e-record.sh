@@ -42,10 +42,9 @@ done
 
 keys_path="$repo_root/e2e/tests/$mode/$name.keys"
 golden_path="$repo_root/e2e/tests/$mode/$name.golden.out"
-artifact_path="$repo_root/e2e/tests/artifacts/$mode/$name.out"
 
 if [ "$force" != "1" ]; then
-  for path in "$keys_path" "$golden_path" "$artifact_path"; do
+  for path in "$keys_path" "$golden_path"; do
     if [ -e "$path" ]; then
       fail "refusing to overwrite $path (rerun with FORCE=1 to replace it)"
     fi
@@ -76,7 +75,7 @@ clean_in="$tmpdir/$name.keys"
 replay_raw_out="$tmpdir/$name.replay.raw.out"
 clean_out="$tmpdir/$name.golden.out"
 
-mkdir -p "$home_dir" "$(dirname "$keys_path")" "$(dirname "$artifact_path")"
+mkdir -p "$home_dir" "$(dirname "$keys_path")"
 
 printf '== build verti ==\n' >&2
 (
@@ -165,8 +164,6 @@ tail -n +2 "$replay_raw_out" | sed '$d' > "$clean_out"
 
 cp "$clean_in" "$keys_path"
 cp "$clean_out" "$golden_path"
-cp "$clean_out" "$artifact_path"
 
 printf 'wrote %s\n' "$keys_path" >&2
 printf 'wrote %s\n' "$golden_path" >&2
-printf 'wrote %s\n' "$artifact_path" >&2

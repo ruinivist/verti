@@ -22,7 +22,6 @@ type scenario struct {
 	mode   string
 	keys   string
 	golden string
-	out    string
 }
 
 func TestScriptE2E(t *testing.T) {
@@ -42,9 +41,9 @@ func TestScriptE2E(t *testing.T) {
 			}
 
 			setupScenario(t, root, bin, tc.mode, repo, home)
-			runScriptReplay(t, root, bin, tc, repo, home)
+			outPath := runScriptReplay(t, root, bin, tc, repo, home, base)
 
-			got := readFile(t, tc.out)
+			got := readFile(t, outPath)
 			want := readFile(t, tc.golden)
 
 			if got != want {
@@ -113,7 +112,6 @@ func discoverScenarios(t *testing.T, root string) []scenario {
 				mode:   mode,
 				keys:   keys,
 				golden: filepath.Join(root, "e2e", "tests", mode, base+".golden.out"),
-				out:    filepath.Join(root, "e2e", "tests", "artifacts", mode, base+".out"),
 			})
 		}
 	}
@@ -147,17 +145,16 @@ func setupScenario(t *testing.T, root, bin, mode, repo, home string) {
 	}
 }
 
-func runScriptReplay(t *testing.T, root, bin string, tc scenario, repo, home string) {
+func runScriptReplay(t *testing.T, root, bin string, tc scenario, repo, home, base string) string {
 	t.Helper()
 
 	keys := readRawFile(t, tc.keys)
 	if bytes.HasSuffix(keys, []byte{'\n'}) {
 		keys = keys[:len(keys)-1]
 	}
-	rawOutPath := tc.out + ".raw"
-	if err := os.MkdirAll(filepath.Dir(tc.out), 0o755); err != nil {
-		t.Fatalf("mkdir artifacts: %v", err)
-	}
+	outBase := strings.ReplaceAll(tc.name, string(os.PathSeparator), "_")
+	rawOutPath := filepath.Join(base, outBase+".out.raw")
+	outPath := filepath.Join(base, outBase+".out")
 	shellPath := filepath.Join(root, "scripts", "e2e-shell.sh")
 
 	cmd := exec.Command("script",
@@ -186,9 +183,11 @@ func runScriptReplay(t *testing.T, root, bin string, tc scenario, repo, home str
 	}
 
 	cleaned := stripScriptWrapper(t, readRawFile(t, rawOutPath))
-	if err := os.WriteFile(tc.out, cleaned, 0o644); err != nil {
-		t.Fatalf("write %s: %v", tc.out, err)
+	if err := os.WriteFile(outPath, cleaned, 0o644); err != nil {
+		t.Fatalf("write %s: %v", outPath, err)
 	}
+
+	return outPath
 }
 
 func stripScriptWrapper(t *testing.T, data []byte) []byte {
