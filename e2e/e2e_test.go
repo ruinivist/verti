@@ -12,8 +12,14 @@ import (
 
 const cliBuildTarget = "./cmd/verti"
 
+const (
+	startInRepo   = "repo"
+	startInNoRepo = "no-repo"
+)
+
 type scenario struct {
 	name   string
+	mode   string
 	keys   string
 	golden string
 	out    string
@@ -35,8 +41,8 @@ func TestScriptE2E(t *testing.T) {
 				t.Fatalf("mkdir home: %v", err)
 			}
 
-			setupTestRepo(t, root, bin, repo, home)
-			runScriptReplay(t, root, bin, tc.keys, tc.out, repo, home)
+			setupScenario(t, root, bin, tc.mode, repo, home)
+			runScriptReplay(t, root, bin, tc, repo, home)
 
 			got := readFile(t, tc.out)
 			want := readFile(t, tc.golden)
@@ -79,32 +85,54 @@ func buildBinary(t *testing.T, root string) string {
 func discoverScenarios(t *testing.T, root string) []scenario {
 	t.Helper()
 
-	keysFiles, err := filepath.Glob(filepath.Join(root, "e2e", "tests", "*.keys"))
-	if err != nil {
-		t.Fatalf("glob keys: %v", err)
+	for _, pattern := range []string{
+		filepath.Join(root, "e2e", "tests", "*.keys"),
+		filepath.Join(root, "e2e", "tests", "*.golden.out"),
+	} {
+		paths, err := filepath.Glob(pattern)
+		if err != nil {
+			t.Fatalf("glob %s: %v", pattern, err)
+		}
+		if len(paths) != 0 {
+			t.Fatalf("root-level e2e fixtures are not supported; move %s under e2e/tests/repo or e2e/tests/no-repo", filepath.Base(paths[0]))
+		}
 	}
-	if len(keysFiles) == 0 {
+
+	scenarios := make([]scenario, 0)
+	for _, mode := range []string{startInNoRepo, startInRepo} {
+		keysFiles, err := filepath.Glob(filepath.Join(root, "e2e", "tests", mode, "*.keys"))
+		if err != nil {
+			t.Fatalf("glob %s fixtures: %v", mode, err)
+		}
+		slices.Sort(keysFiles)
+
+		for _, keys := range keysFiles {
+			base := strings.TrimSuffix(filepath.Base(keys), filepath.Ext(keys))
+			scenarios = append(scenarios, scenario{
+				name:   filepath.Join(mode, base),
+				mode:   mode,
+				keys:   keys,
+				golden: filepath.Join(root, "e2e", "tests", mode, base+".golden.out"),
+				out:    filepath.Join(root, "e2e", "tests", "artifacts", mode, base+".out"),
+			})
+		}
+	}
+	if len(scenarios) == 0 {
 		t.Fatal("no e2e scenarios found")
-	}
-
-	slices.Sort(keysFiles)
-
-	scenarios := make([]scenario, 0, len(keysFiles))
-	for _, keys := range keysFiles {
-		name := strings.TrimSuffix(filepath.Base(keys), filepath.Ext(keys))
-		scenarios = append(scenarios, scenario{
-			name:   name,
-			keys:   keys,
-			golden: filepath.Join(root, "e2e", "tests", name+".golden.out"),
-			out:    filepath.Join(root, "e2e", "tests", "artifacts", name+".out"),
-		})
 	}
 
 	return scenarios
 }
 
-func setupTestRepo(t *testing.T, root, bin, repo, home string) {
+func setupScenario(t *testing.T, root, bin, mode, repo, home string) {
 	t.Helper()
+
+	if mode == startInNoRepo {
+		return
+	}
+	if mode != startInRepo {
+		t.Fatalf("unsupported scenario mode %q", mode)
+	}
 
 	cmd := exec.Command(filepath.Join(root, "scripts", "test-repo.sh"))
 	cmd.Dir = root
@@ -119,14 +147,17 @@ func setupTestRepo(t *testing.T, root, bin, repo, home string) {
 	}
 }
 
-func runScriptReplay(t *testing.T, root, bin, keysPath, outPath, repo, home string) {
+func runScriptReplay(t *testing.T, root, bin string, tc scenario, repo, home string) {
 	t.Helper()
 
-	keys := readRawFile(t, keysPath)
+	keys := readRawFile(t, tc.keys)
 	if bytes.HasSuffix(keys, []byte{'\n'}) {
 		keys = keys[:len(keys)-1]
 	}
-	rawOutPath := outPath + ".raw"
+	rawOutPath := tc.out + ".raw"
+	if err := os.MkdirAll(filepath.Dir(tc.out), 0o755); err != nil {
+		t.Fatalf("mkdir artifacts: %v", err)
+	}
 	shellPath := filepath.Join(root, "scripts", "e2e-shell.sh")
 
 	cmd := exec.Command("script",
@@ -137,22 +168,26 @@ func runScriptReplay(t *testing.T, root, bin, keysPath, outPath, repo, home stri
 		"-c", shellPath,
 	)
 	cmd.Dir = root
-	cmd.Env = withEnv(os.Environ(), map[string]string{
-		"E2E_TEST_REPO": repo,
-		"HOME":          home,
-		"HISTFILE":      "/dev/null",
-		"PATH":          filepath.Dir(bin) + string(os.PathListSeparator) + os.Getenv("PATH"),
-		"TERM":          "xterm-256color",
-	})
+	env := map[string]string{
+		"E2E_START_IN": tc.mode,
+		"HOME":         home,
+		"HISTFILE":     "/dev/null",
+		"PATH":         filepath.Dir(bin) + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"TERM":         "xterm-256color",
+	}
+	if tc.mode == startInRepo {
+		env["E2E_TEST_REPO"] = repo
+	}
+	cmd.Env = withEnv(os.Environ(), env)
 	cmd.Stdin = bytes.NewReader(keys)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("run script replay %s: %v\n%s", keysPath, err, out)
+		t.Fatalf("run script replay %s: %v\n%s", tc.keys, err, out)
 	}
 
 	cleaned := stripScriptWrapper(t, readRawFile(t, rawOutPath))
-	if err := os.WriteFile(outPath, cleaned, 0o644); err != nil {
-		t.Fatalf("write %s: %v", outPath, err)
+	if err := os.WriteFile(tc.out, cleaned, 0o644); err != nil {
+		t.Fatalf("write %s: %v", tc.out, err)
 	}
 }
 

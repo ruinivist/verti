@@ -35,7 +35,8 @@ A `test-repo` directory can be created with `make test-repo` command. Inside tha
 
 ### Adding an E2E test
 
-Run `make e2e-record NAME=test_name` to add a new test.
+Run `make e2e-record MODE=repo NAME=test_name` to add a test that starts in the scaffolded repo.
+Run `make e2e-record MODE=no-repo NAME=test_name` to add a test that starts in the fake home directory without a repo.
 Type out the commands, sanity check the results to freeze behavior.
 
 `make e2e-test` to run the tests.
