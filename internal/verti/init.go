@@ -29,9 +29,9 @@ func Init(exePath string) error {
 }
 
 func Add(exePath, artifactPath string) error {
-	cleaned, err := verticonfig.NormalizeArtifactPath(artifactPath)
+	cleaned, err := normalizeArtifactPath(artifactPath)
 	if err != nil {
-		return fmt.Errorf("invalid artifact path %q: %v", artifactPath, err)
+		return err
 	}
 
 	info, err := os.Stat(strings.TrimSuffix(cleaned, "/"))
@@ -73,6 +73,55 @@ func Add(exePath, artifactPath string) error {
 
 	output.Printf("Added artifact: %s\n", cleaned)
 	return nil
+}
+
+func Remove(exePath, artifactPath string) error {
+	cleaned, err := normalizeArtifactPath(artifactPath)
+	if err != nil {
+		return err
+	}
+
+	if err := ensureInitialized(exePath); err != nil {
+		return err
+	}
+
+	managed, err := gitrepo.ReadManagedExcludes(excludePath)
+	if err != nil {
+		return fmt.Errorf("failed to read exclude: %v", err)
+	}
+
+	if !containsString(managed, rootedArtifactPath(cleaned)) {
+		output.Printf("Path was not part of excludes; nothing to do: %s\n", cleaned)
+		return nil
+	}
+
+	cfg, err := readConfig()
+	if err != nil {
+		return err
+	}
+
+	filtered, removed := removeString(cfg.Artifacts, cleaned)
+	if removed {
+		cfg.Artifacts = filtered
+		if err := verticonfig.WriteConfig(configPath, cfg); err != nil {
+			return fmt.Errorf("failed to write config: %v", err)
+		}
+	}
+
+	if err := applyConfig(); err != nil {
+		return err
+	}
+
+	output.Printf("Removed artifact: %s\n", cleaned)
+	return nil
+}
+
+func normalizeArtifactPath(artifactPath string) (string, error) {
+	cleaned, err := verticonfig.NormalizeArtifactPath(artifactPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid artifact path %q: %v", artifactPath, err)
+	}
+	return cleaned, nil
 }
 
 func ensureInitialized(exePath string) error {
@@ -131,4 +180,21 @@ func containsString(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func removeString(values []string, target string) ([]string, bool) {
+	filtered := values[:0]
+	removed := false
+	for _, value := range values {
+		if value == target {
+			removed = true
+			continue
+		}
+		filtered = append(filtered, value)
+	}
+	return filtered, removed
+}
+
+func rootedArtifactPath(artifact string) string {
+	return "/" + artifact
 }

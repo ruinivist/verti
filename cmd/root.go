@@ -14,6 +14,8 @@ func Run(args []string) int {
 		return runAdd(args[1:])
 	case "init":
 		return runInit(args[1:])
+	case "rm":
+		return runRemove(args[1:])
 	case "orphans":
 		return runOrphans(args[1:])
 	case "sync":

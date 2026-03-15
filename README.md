@@ -26,6 +26,7 @@ The files are ignored by git by adding them to `.git/info/exclude` file automati
 - add it to path
 - `verti init`. This creates the repo specific `verti.toml` config file, installs or refreshes hooks, and reapplies the current config. Can rerun as needed.
 - `verti add <path>` to register a file or directory after init without opening an editor.
+- `verti rm <path>` to remove a previously registered file or directory.
 
 # Dev notes
 

@@ -74,6 +74,18 @@ func TestRun(t *testing.T) {
 			wantCode: 1,
 		},
 		{
+			name:     "rm missing path",
+			args:     []string{"rm"},
+			wantOut:  prefixed("usage: verti rm <path>\n"),
+			wantCode: 1,
+		},
+		{
+			name:     "rm extra",
+			args:     []string{"rm", "notes.txt", "extra"},
+			wantOut:  prefixed("unknown rm option: extra\n"),
+			wantCode: 1,
+		},
+		{
 			name:     "orphans extra",
 			args:     []string{"orphans", "1", "extra"},
 			wantOut:  prefixed("unknown orphans option: extra\n"),
@@ -187,6 +199,89 @@ func TestRunAddExecution(t *testing.T) {
 		}
 		if string(exclude) != managedExcludeBlockForTest("/notes.txt") {
 			t.Fatalf("exclude = %q, want %q", string(exclude), managedExcludeBlockForTest("/notes.txt"))
+		}
+	})
+}
+
+func TestRunRemoveExecution(t *testing.T) {
+	repoDir := testutil.NewRepo(t)
+
+	testutil.WithWorkingDir(t, repoDir, func() {
+		if err := verticonfig.WriteConfig(".git/verti.toml", verticonfig.Config{
+			RepoID:    "repo-cmd-rm",
+			Artifacts: []string{"notes.txt", "docs/"},
+		}); err != nil {
+			t.Fatalf("WriteConfig() error = %v", err)
+		}
+		if err := os.WriteFile(".git/info/exclude", []byte("# comment\nmanual\n"+managedExcludeBlockForTest("/notes.txt", "/docs/")), 0o644); err != nil {
+			t.Fatalf("write exclude: %v", err)
+		}
+
+		stdout, stderr := captureOutput(t, func() {
+			if got := Run([]string{"rm", "/notes.txt"}); got != 0 {
+				t.Fatalf("Run() code = %d, want %d", got, 0)
+			}
+		})
+
+		if stdout != prefixed("Removed artifact: notes.txt\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Removed artifact: notes.txt\n"))
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+
+		config, err := os.ReadFile(filepath.Join(repoDir, ".git", "verti.toml"))
+		if err != nil {
+			t.Fatalf("read config: %v", err)
+		}
+		if !bytes.Contains(config, []byte("repo_id = \"repo-cmd-rm\"")) || !bytes.Contains(config, []byte("artifacts = [\"docs/\"]\n")) {
+			t.Fatalf("config missing removed artifact update: %q", string(config))
+		}
+
+		exclude, err := os.ReadFile(filepath.Join(repoDir, ".git", "info", "exclude"))
+		if err != nil {
+			t.Fatalf("read exclude: %v", err)
+		}
+		wantExclude := "# comment\nmanual\n" + managedExcludeBlockForTest("/docs/")
+		if string(exclude) != wantExclude {
+			t.Fatalf("exclude = %q, want %q", string(exclude), wantExclude)
+		}
+	})
+}
+
+func TestRunRemoveNoOpExecution(t *testing.T) {
+	repoDir := testutil.NewRepo(t)
+
+	testutil.WithWorkingDir(t, repoDir, func() {
+		if err := verticonfig.WriteConfig(".git/verti.toml", verticonfig.Config{
+			RepoID:    "repo-cmd-rm-noop",
+			Artifacts: []string{"notes.txt"},
+		}); err != nil {
+			t.Fatalf("WriteConfig() error = %v", err)
+		}
+		if err := os.WriteFile(".git/info/exclude", []byte("# comment\nmanual\n"), 0o644); err != nil {
+			t.Fatalf("write exclude: %v", err)
+		}
+
+		stdout, stderr := captureOutput(t, func() {
+			if got := Run([]string{"rm", "notes.txt"}); got != 0 {
+				t.Fatalf("Run() code = %d, want %d", got, 0)
+			}
+		})
+
+		if stdout != prefixed("Path was not part of excludes; nothing to do: notes.txt\n") {
+			t.Fatalf("stdout = %q, want %q", stdout, prefixed("Path was not part of excludes; nothing to do: notes.txt\n"))
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+
+		config, err := os.ReadFile(filepath.Join(repoDir, ".git", "verti.toml"))
+		if err != nil {
+			t.Fatalf("read config: %v", err)
+		}
+		if !bytes.Contains(config, []byte("artifacts = [\"notes.txt\"]\n")) {
+			t.Fatalf("config unexpectedly changed: %q", string(config))
 		}
 	})
 }
