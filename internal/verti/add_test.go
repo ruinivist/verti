@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	verticonfig "verti/internal/config"
+	"verti/internal/gitrepo"
 	"verti/internal/testutil"
 )
 
@@ -60,8 +62,16 @@ func TestAddBootstrapsConfigAndHooksWithoutEditor(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
-		if string(exclude) != "docs\n" {
-			t.Fatalf("exclude = %q, want %q", string(exclude), "docs\n")
+		if string(exclude) != managedExcludeBlockForTest("docs") {
+			t.Fatalf("exclude = %q, want %q", string(exclude), managedExcludeBlockForTest("docs"))
+		}
+
+		managed, err := gitrepo.ReadManagedExcludes(filepath.Join(repoDir, excludePath))
+		if err != nil {
+			t.Fatalf("ReadManagedExcludes() error = %v", err)
+		}
+		if !reflect.DeepEqual(managed, []string{"docs"}) {
+			t.Fatalf("ReadManagedExcludes() = %#v, want %#v", managed, []string{"docs"})
 		}
 	})
 }
@@ -96,8 +106,9 @@ func TestAddAppendsArtifactAndUpdatesExclude(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
-		if string(exclude) != "# comment\nfoo\ndocs/guide.md\n" {
-			t.Fatalf("exclude = %q, want %q", string(exclude), "# comment\nfoo\ndocs/guide.md\n")
+		wantExclude := "# comment\nfoo\n" + managedExcludeBlockForTest("foo", "docs/guide.md")
+		if string(exclude) != wantExclude {
+			t.Fatalf("exclude = %q, want %q", string(exclude), wantExclude)
 		}
 	})
 }
@@ -132,8 +143,9 @@ func TestAddDuplicateArtifactIsNoOp(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
-		if string(exclude) != "# comment\nfoo\n" {
-			t.Fatalf("exclude = %q, want %q", string(exclude), "# comment\nfoo\n")
+		wantExclude := "# comment\nfoo\n" + managedExcludeBlockForTest("foo")
+		if string(exclude) != wantExclude {
+			t.Fatalf("exclude = %q, want %q", string(exclude), wantExclude)
 		}
 	})
 }
@@ -158,4 +170,13 @@ func TestAddRejectsInvalidArtifactPathBeforeBootstrap(t *testing.T) {
 
 func verticonfigManagedHeaderForTest() string {
 	return "# Managed by Verti. Manual edits may be rewritten.\n# Comments and formatting in this file will be lost.\n\n"
+}
+
+func managedExcludeBlockForTest(artifacts ...string) string {
+	block := "# ===== verti start =====\n"
+	for _, artifact := range artifacts {
+		block += artifact + "\n"
+	}
+	block += "# ===== verti end =====\n"
+	return block
 }

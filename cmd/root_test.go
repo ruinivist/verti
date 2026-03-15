@@ -147,8 +147,8 @@ func TestRunInitExecution(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
-		if string(exclude) != "" {
-			t.Fatalf("exclude = %q, want empty", string(exclude))
+		if string(exclude) != managedExcludeBlockForTest() {
+			t.Fatalf("exclude = %q, want %q", string(exclude), managedExcludeBlockForTest())
 		}
 	})
 }
@@ -185,8 +185,8 @@ func TestRunAddExecution(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
-		if string(exclude) != "notes.txt\n" {
-			t.Fatalf("exclude = %q, want %q", string(exclude), "notes.txt\n")
+		if string(exclude) != managedExcludeBlockForTest("notes.txt") {
+			t.Fatalf("exclude = %q, want %q", string(exclude), managedExcludeBlockForTest("notes.txt"))
 		}
 	})
 }
@@ -636,6 +636,15 @@ func prefixed(msg string) string {
 func sha256Hex(content []byte) string {
 	sum := sha256.Sum256(content)
 	return hex.EncodeToString(sum[:])
+}
+
+func managedExcludeBlockForTest(artifacts ...string) string {
+	block := "# ===== verti start =====\n"
+	for _, artifact := range artifacts {
+		block += artifact + "\n"
+	}
+	block += "# ===== verti end =====\n"
+	return block
 }
 
 func writeCmdBlob(t *testing.T, home, repoID, content string) string {

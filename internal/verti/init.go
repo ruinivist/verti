@@ -105,7 +105,7 @@ func applyConfig() error {
 		return err
 	}
 
-	if err := gitrepo.ExcludeArtifacts(excludePath, cfg.Artifacts); err != nil {
+	if err := gitrepo.WriteManagedExcludes(excludePath, cfg.Artifacts); err != nil {
 		return fmt.Errorf("failed to update exclude: %v", err)
 	}
 

@@ -72,8 +72,8 @@ func TestInitCreatesConfigAndAppliesEmptyExcludeWithoutEditor(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
-		if string(exclude) != "" {
-			t.Fatalf("exclude = %q, want empty", string(exclude))
+		if string(exclude) != managedExcludeBlockForTest() {
+			t.Fatalf("exclude = %q, want %q", string(exclude), managedExcludeBlockForTest())
 		}
 	})
 }
@@ -128,8 +128,9 @@ func TestInitPreservesExistingConfigAndRewritesHook(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
-		if string(gotExclude) != "# comment\nfoo\n" {
-			t.Fatalf("exclude changed = %q, want %q", string(gotExclude), "# comment\nfoo\n")
+		wantExclude := "# comment\nfoo\n" + managedExcludeBlockForTest("foo")
+		if string(gotExclude) != wantExclude {
+			t.Fatalf("exclude changed = %q, want %q", string(gotExclude), wantExclude)
 		}
 	})
 }
@@ -166,8 +167,8 @@ func TestInitIsIdempotentOnRepeat(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
-		if string(exclude) != "foo\nbar\n" {
-			t.Fatalf("exclude = %q, want %q", string(exclude), "foo\nbar\n")
+		if string(exclude) != managedExcludeBlockForTest("foo", "bar") {
+			t.Fatalf("exclude = %q, want %q", string(exclude), managedExcludeBlockForTest("foo", "bar"))
 		}
 	})
 }
