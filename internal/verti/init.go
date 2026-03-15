@@ -13,19 +13,13 @@ import (
 	"verti/internal/output"
 )
 
-const (
-	configPath               = ".git/verti.toml"
-	referenceTransactionPath = ".git/hooks/reference-transaction"
-	postCheckoutHookPath     = ".git/hooks/post-checkout"
-	excludePath              = ".git/info/exclude"
-)
-
 func Init(exePath string) error {
-	if err := ensureInitialized(exePath); err != nil {
+	paths, err := ensureInitialized(exePath)
+	if err != nil {
 		return err
 	}
 
-	return applyConfig()
+	return applyConfig(paths)
 }
 
 func Add(exePath, artifactPath string) error {
@@ -45,17 +39,18 @@ func Add(exePath, artifactPath string) error {
 		return fmt.Errorf("artifact is not a directory: %s", strings.TrimSuffix(cleaned, "/"))
 	}
 
-	if err := ensureInitialized(exePath); err != nil {
+	paths, err := ensureInitialized(exePath)
+	if err != nil {
 		return err
 	}
 
-	cfg, err := readConfig()
+	cfg, err := readConfig(paths.Config)
 	if err != nil {
 		return err
 	}
 
 	if containsString(cfg.Artifacts, cleaned) {
-		if err := applyConfig(); err != nil {
+		if err := applyConfig(paths); err != nil {
 			return err
 		}
 		output.Printf("Artifact already added: %s\n", cleaned)
@@ -63,11 +58,11 @@ func Add(exePath, artifactPath string) error {
 	}
 
 	cfg.Artifacts = append(cfg.Artifacts, cleaned)
-	if err := verticonfig.WriteConfig(configPath, cfg); err != nil {
+	if err := verticonfig.WriteConfig(paths.Config, cfg); err != nil {
 		return fmt.Errorf("failed to write config: %v", err)
 	}
 
-	if err := applyConfig(); err != nil {
+	if err := applyConfig(paths); err != nil {
 		return err
 	}
 
@@ -81,11 +76,12 @@ func Remove(exePath, artifactPath string) error {
 		return err
 	}
 
-	if err := ensureInitialized(exePath); err != nil {
+	paths, err := ensureInitialized(exePath)
+	if err != nil {
 		return err
 	}
 
-	managed, err := gitrepo.ReadManagedExcludes(excludePath)
+	managed, err := gitrepo.ReadManagedExcludes(paths.Exclude)
 	if err != nil {
 		return fmt.Errorf("failed to read exclude: %v", err)
 	}
@@ -95,7 +91,7 @@ func Remove(exePath, artifactPath string) error {
 		return nil
 	}
 
-	cfg, err := readConfig()
+	cfg, err := readConfig(paths.Config)
 	if err != nil {
 		return err
 	}
@@ -103,12 +99,12 @@ func Remove(exePath, artifactPath string) error {
 	filtered, removed := removeString(cfg.Artifacts, cleaned)
 	if removed {
 		cfg.Artifacts = filtered
-		if err := verticonfig.WriteConfig(configPath, cfg); err != nil {
+		if err := verticonfig.WriteConfig(paths.Config, cfg); err != nil {
 			return fmt.Errorf("failed to write config: %v", err)
 		}
 	}
 
-	if err := applyConfig(); err != nil {
+	if err := applyConfig(paths); err != nil {
 		return err
 	}
 
@@ -124,49 +120,54 @@ func normalizeArtifactPath(artifactPath string) (string, error) {
 	return cleaned, nil
 }
 
-func ensureInitialized(exePath string) error {
+func ensureInitialized(exePath string) (gitrepo.Paths, error) {
 	if err := gitrepo.EnsureGitDir(); err != nil {
-		return errors.New("not a git repository")
+		return gitrepo.Paths{}, errors.New("not a git repository")
 	}
 
-	if _, err := os.Stat(configPath); err != nil {
+	paths, err := gitrepo.ResolvePaths()
+	if err != nil {
+		return gitrepo.Paths{}, fmt.Errorf("failed to resolve git paths: %v", err)
+	}
+
+	if _, err := os.Stat(paths.Config); err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("failed to check config: %v", err)
+			return gitrepo.Paths{}, fmt.Errorf("failed to check config: %v", err)
 		}
-		if err := verticonfig.WriteConfig(configPath, verticonfig.Config{
+		if err := verticonfig.WriteConfig(paths.Config, verticonfig.Config{
 			RepoID:    uuid.NewString(),
 			Artifacts: []string{},
 		}); err != nil {
-			return fmt.Errorf("failed to write config: %v", err)
+			return gitrepo.Paths{}, fmt.Errorf("failed to write config: %v", err)
 		}
 	}
 
-	if err := gitrepo.WriteReferenceTransactionHook(referenceTransactionPath, exePath); err != nil {
-		return fmt.Errorf("failed to write reference-transaction hook: %v", err)
+	if err := gitrepo.WriteReferenceTransactionHook(paths.ReferenceTransactionHook, exePath); err != nil {
+		return gitrepo.Paths{}, fmt.Errorf("failed to write reference-transaction hook: %v", err)
 	}
 
-	if err := gitrepo.WritePostCheckoutHook(postCheckoutHookPath, exePath); err != nil {
-		return fmt.Errorf("failed to write post-checkout hook: %v", err)
+	if err := gitrepo.WritePostCheckoutHook(paths.PostCheckoutHook, exePath); err != nil {
+		return gitrepo.Paths{}, fmt.Errorf("failed to write post-checkout hook: %v", err)
 	}
 
-	return nil
+	return paths, nil
 }
 
-func applyConfig() error {
-	cfg, err := readConfig()
+func applyConfig(paths gitrepo.Paths) error {
+	cfg, err := readConfig(paths.Config)
 	if err != nil {
 		return err
 	}
 
-	if err := gitrepo.WriteManagedExcludes(excludePath, cfg.Artifacts); err != nil {
+	if err := gitrepo.WriteManagedExcludes(paths.Exclude, cfg.Artifacts); err != nil {
 		return fmt.Errorf("failed to update exclude: %v", err)
 	}
 
 	return nil
 }
 
-func readConfig() (verticonfig.Config, error) {
-	cfg, err := verticonfig.ReadConfig(configPath)
+func readConfig(path string) (verticonfig.Config, error) {
+	cfg, err := verticonfig.ReadConfig(path)
 	if err != nil {
 		return verticonfig.Config{}, fmt.Errorf("failed to read config: %v", err)
 	}

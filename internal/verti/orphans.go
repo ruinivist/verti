@@ -60,7 +60,12 @@ func readCurrentConfig() (verticonfig.Config, error) {
 		return verticonfig.Config{}, errors.New("not a git repository")
 	}
 
-	cfg, err := verticonfig.ReadConfig(configPath)
+	paths, err := gitrepo.ResolvePaths()
+	if err != nil {
+		return verticonfig.Config{}, fmt.Errorf("failed to resolve git paths: %v", err)
+	}
+
+	cfg, err := verticonfig.ReadConfig(paths.Config)
 	if err != nil {
 		return verticonfig.Config{}, fmt.Errorf("failed to read config: %v", err)
 	}

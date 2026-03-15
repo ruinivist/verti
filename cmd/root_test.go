@@ -18,6 +18,16 @@ import (
 	"verti/internal/testutil"
 )
 
+func vertiConfigPath(t *testing.T, repoDir string) string {
+	t.Helper()
+	return testutil.VertiConfigPath(t, repoDir)
+}
+
+func excludePath(t *testing.T, repoDir string) string {
+	t.Helper()
+	return testutil.ExcludePath(t, repoDir)
+}
+
 func TestRun(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -147,7 +157,7 @@ func TestRunInitExecution(t *testing.T) {
 			t.Fatalf("stderr = %q, want empty", stderr)
 		}
 
-		config, err := os.ReadFile(filepath.Join(repoDir, ".git", "verti.toml"))
+		config, err := os.ReadFile(vertiConfigPath(t, repoDir))
 		if err != nil {
 			t.Fatalf("read config: %v", err)
 		}
@@ -155,7 +165,7 @@ func TestRunInitExecution(t *testing.T) {
 			t.Fatalf("config missing bootstrapped content: %q", string(config))
 		}
 
-		exclude, err := os.ReadFile(filepath.Join(repoDir, ".git", "info", "exclude"))
+		exclude, err := os.ReadFile(excludePath(t, repoDir))
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
@@ -185,7 +195,7 @@ func TestRunAddExecution(t *testing.T) {
 			t.Fatalf("stderr = %q, want empty", stderr)
 		}
 
-		config, err := os.ReadFile(filepath.Join(repoDir, ".git", "verti.toml"))
+		config, err := os.ReadFile(vertiConfigPath(t, repoDir))
 		if err != nil {
 			t.Fatalf("read config: %v", err)
 		}
@@ -193,7 +203,7 @@ func TestRunAddExecution(t *testing.T) {
 			t.Fatalf("config missing added artifact: %q", string(config))
 		}
 
-		exclude, err := os.ReadFile(filepath.Join(repoDir, ".git", "info", "exclude"))
+		exclude, err := os.ReadFile(excludePath(t, repoDir))
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
@@ -292,7 +302,7 @@ func TestRunSyncSnapshotAndRestore(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	if err := verticonfig.WriteConfig(filepath.Join(repoDir, ".git", "verti.toml"), verticonfig.Config{
+	if err := verticonfig.WriteConfig(vertiConfigPath(t, repoDir), verticonfig.Config{
 		RepoID:    "repo-cmd-sync",
 		Artifacts: []string{"test.md"},
 	}); err != nil {
@@ -384,7 +394,7 @@ func TestRunSyncSnapshotAndRestoreDirectoryArtifact(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	if err := verticonfig.WriteConfig(filepath.Join(repoDir, ".git", "verti.toml"), verticonfig.Config{
+	if err := verticonfig.WriteConfig(vertiConfigPath(t, repoDir), verticonfig.Config{
 		RepoID:    "repo-cmd-dir",
 		Artifacts: []string{"docs"},
 	}); err != nil {
@@ -490,7 +500,7 @@ func TestRunSyncNoArtifacts(t *testing.T) {
 	repoDir := testutil.NewGitRepo(t)
 	t.Setenv("HOME", t.TempDir())
 
-	if err := verticonfig.WriteConfig(filepath.Join(repoDir, ".git", "verti.toml"), verticonfig.Config{
+	if err := verticonfig.WriteConfig(vertiConfigPath(t, repoDir), verticonfig.Config{
 		RepoID:    "repo-cmd-empty",
 		Artifacts: []string{},
 	}); err != nil {
@@ -518,7 +528,7 @@ func TestRunOrphansEmpty(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	if err := verticonfig.WriteConfig(filepath.Join(repoDir, ".git", "verti.toml"), verticonfig.Config{
+	if err := verticonfig.WriteConfig(vertiConfigPath(t, repoDir), verticonfig.Config{
 		RepoID:    "repo-cmd-orphans-empty",
 		Artifacts: []string{"test.md"},
 	}); err != nil {
@@ -553,7 +563,7 @@ func TestRunOrphansListsNewestFirst(t *testing.T) {
 	})
 
 	repoID := "repo-cmd-orphans-list"
-	if err := verticonfig.WriteConfig(filepath.Join(repoDir, ".git", "verti.toml"), verticonfig.Config{
+	if err := verticonfig.WriteConfig(vertiConfigPath(t, repoDir), verticonfig.Config{
 		RepoID:    repoID,
 		Artifacts: []string{"test.md"},
 	}); err != nil {
@@ -601,7 +611,7 @@ func TestRunOrphansRestore(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	repoID := "repo-cmd-orphan-restore"
-	if err := verticonfig.WriteConfig(filepath.Join(repoDir, ".git", "verti.toml"), verticonfig.Config{
+	if err := verticonfig.WriteConfig(vertiConfigPath(t, repoDir), verticonfig.Config{
 		RepoID:    repoID,
 		Artifacts: []string{"test.md"},
 	}); err != nil {
@@ -646,7 +656,7 @@ func TestRunOrphansOutOfRange(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	repoID := "repo-cmd-orphan-range"
-	if err := verticonfig.WriteConfig(filepath.Join(repoDir, ".git", "verti.toml"), verticonfig.Config{
+	if err := verticonfig.WriteConfig(vertiConfigPath(t, repoDir), verticonfig.Config{
 		RepoID:    repoID,
 		Artifacts: []string{"test.md"},
 	}); err != nil {

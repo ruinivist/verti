@@ -12,6 +12,8 @@ import (
 
 func TestRemoveDeletesArtifactAndUpdatesExclude(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
+	configPath := testutil.VertiConfigPath(t, repoDir)
+	excludePath := testutil.ExcludePath(t, repoDir)
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		if err := verticonfig.WriteConfig(configPath, verticonfig.Config{
@@ -49,6 +51,8 @@ func TestRemoveDeletesArtifactAndUpdatesExclude(t *testing.T) {
 
 func TestRemoveUsesManagedExcludeBlockForNoOp(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
+	configPath := testutil.VertiConfigPath(t, repoDir)
+	excludePath := testutil.ExcludePath(t, repoDir)
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		if err := verticonfig.WriteConfig(configPath, verticonfig.Config{
@@ -85,6 +89,8 @@ func TestRemoveUsesManagedExcludeBlockForNoOp(t *testing.T) {
 
 func TestRemovePreservesTrailingSlashSemanticsWithoutFilesystemChecks(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
+	configPath := testutil.VertiConfigPath(t, repoDir)
+	excludePath := testutil.ExcludePath(t, repoDir)
 	testutil.WriteFile(t, filepath.Join(repoDir, "notes.txt"), "notes\n")
 
 	testutil.WithWorkingDir(t, repoDir, func() {
@@ -114,6 +120,8 @@ func TestRemovePreservesTrailingSlashSemanticsWithoutFilesystemChecks(t *testing
 
 func TestRemoveRequiresExactTrailingSlashMatch(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
+	configPath := testutil.VertiConfigPath(t, repoDir)
+	excludePath := testutil.ExcludePath(t, repoDir)
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		if err := verticonfig.WriteConfig(configPath, verticonfig.Config{
@@ -142,6 +150,7 @@ func TestRemoveRequiresExactTrailingSlashMatch(t *testing.T) {
 
 func TestRemoveRejectsInvalidArtifactPathBeforeBootstrap(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
+	configPath := testutil.VertiConfigPath(t, repoDir)
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		err := Remove("/tmp/verti", "../outside.txt")

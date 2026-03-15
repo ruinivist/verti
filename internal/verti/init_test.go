@@ -3,7 +3,6 @@ package verti
 import (
 	"bytes"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,13 +12,17 @@ import (
 
 func TestInitCreatesConfigAndAppliesEmptyExcludeWithoutEditor(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
+	configPath := testutil.VertiConfigPath(t, repoDir)
+	referenceTransactionPath := testutil.ReferenceTransactionHookPath(t, repoDir)
+	postCheckoutPath := testutil.PostCheckoutHookPath(t, repoDir)
+	excludePath := testutil.ExcludePath(t, repoDir)
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		if err := Init("/tmp/verti"); err != nil {
 			t.Fatalf("Init() error = %v", err)
 		}
 
-		config, err := os.ReadFile(filepath.Join(repoDir, configPath))
+		config, err := os.ReadFile(configPath)
 		if err != nil {
 			t.Fatalf("read config: %v", err)
 		}
@@ -38,7 +41,7 @@ func TestInitCreatesConfigAndAppliesEmptyExcludeWithoutEditor(t *testing.T) {
 			t.Fatalf("config missing empty artifacts: %q", text)
 		}
 
-		cfg, err := verticonfig.ReadConfig(filepath.Join(repoDir, configPath))
+		cfg, err := verticonfig.ReadConfig(configPath)
 		if err != nil {
 			t.Fatalf("ReadConfig() error = %v", err)
 		}
@@ -49,7 +52,7 @@ func TestInitCreatesConfigAndAppliesEmptyExcludeWithoutEditor(t *testing.T) {
 			t.Fatalf("ReadConfig() Artifacts = %#v, want empty", cfg.Artifacts)
 		}
 
-		hook, err := os.ReadFile(filepath.Join(repoDir, referenceTransactionPath))
+		hook, err := os.ReadFile(referenceTransactionPath)
 		if err != nil {
 			t.Fatalf("read reference-transaction hook: %v", err)
 		}
@@ -57,7 +60,7 @@ func TestInitCreatesConfigAndAppliesEmptyExcludeWithoutEditor(t *testing.T) {
 			t.Fatalf("reference-transaction hook missing sync invocation: %q", string(hook))
 		}
 
-		postCheckoutHook, err := os.ReadFile(filepath.Join(repoDir, postCheckoutHookPath))
+		postCheckoutHook, err := os.ReadFile(postCheckoutPath)
 		if err != nil {
 			t.Fatalf("read post-checkout hook: %v", err)
 		}
@@ -68,7 +71,7 @@ func TestInitCreatesConfigAndAppliesEmptyExcludeWithoutEditor(t *testing.T) {
 			t.Fatalf("post-checkout hook missing same-commit guard: %q", string(postCheckoutHook))
 		}
 
-		exclude, err := os.ReadFile(filepath.Join(repoDir, excludePath))
+		exclude, err := os.ReadFile(excludePath)
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
@@ -81,6 +84,10 @@ func TestInitCreatesConfigAndAppliesEmptyExcludeWithoutEditor(t *testing.T) {
 func TestInitPreservesExistingConfigAndRewritesHook(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
 	existingConfig := "[verti]\nrepo_id = \"existing\"\nartifacts = [\"foo\"]\n"
+	configPath := testutil.VertiConfigPath(t, repoDir)
+	referenceTransactionPath := testutil.ReferenceTransactionHookPath(t, repoDir)
+	postCheckoutPath := testutil.PostCheckoutHookPath(t, repoDir)
+	excludePath := testutil.ExcludePath(t, repoDir)
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		if err := os.WriteFile(configPath, []byte(existingConfig), 0o644); err != nil {
@@ -89,7 +96,7 @@ func TestInitPreservesExistingConfigAndRewritesHook(t *testing.T) {
 		if err := os.WriteFile(referenceTransactionPath, []byte("old hook"), 0o755); err != nil {
 			t.Fatalf("write reference-transaction hook: %v", err)
 		}
-		if err := os.WriteFile(postCheckoutHookPath, []byte("old post-checkout hook"), 0o755); err != nil {
+		if err := os.WriteFile(postCheckoutPath, []byte("old post-checkout hook"), 0o755); err != nil {
 			t.Fatalf("write post-checkout hook: %v", err)
 		}
 		if err := os.WriteFile(excludePath, []byte("# comment\nfoo\n"), 0o644); err != nil {
@@ -116,7 +123,7 @@ func TestInitPreservesExistingConfigAndRewritesHook(t *testing.T) {
 			t.Fatalf("reference-transaction hook not rewritten: %q", string(gotHook))
 		}
 
-		gotPostCheckoutHook, err := os.ReadFile(postCheckoutHookPath)
+		gotPostCheckoutHook, err := os.ReadFile(postCheckoutPath)
 		if err != nil {
 			t.Fatalf("read post-checkout hook: %v", err)
 		}
@@ -137,6 +144,8 @@ func TestInitPreservesExistingConfigAndRewritesHook(t *testing.T) {
 
 func TestInitIsIdempotentOnRepeat(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
+	configPath := testutil.VertiConfigPath(t, repoDir)
+	excludePath := testutil.ExcludePath(t, repoDir)
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		if err := Init("/tmp/verti"); err != nil {

@@ -12,11 +12,9 @@ func NewRepo(t *testing.T) string {
 	t.Helper()
 
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".git", "hooks"), 0o755); err != nil {
-		t.Fatalf("mkdir repo hooks: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(dir, ".git", "info"), 0o755); err != nil {
-		t.Fatalf("mkdir repo info: %v", err)
+	RunGit(t, dir, "init")
+	if err := os.WriteFile(filepath.Join(dir, ".git", "info", "exclude"), nil, 0o644); err != nil {
+		t.Fatalf("clear exclude: %v", err)
 	}
 	return dir
 }
@@ -71,6 +69,36 @@ func NewFakeEditor(t *testing.T, dir, content string) string {
 func GitRevParse(t *testing.T, dir, rev string) string {
 	t.Helper()
 	return RunGit(t, dir, "rev-parse", rev)
+}
+
+func GitCommonDir(t *testing.T, dir string) string {
+	t.Helper()
+
+	commonDir := RunGit(t, dir, "rev-parse", "--git-common-dir")
+	if filepath.IsAbs(commonDir) {
+		return filepath.Clean(commonDir)
+	}
+	return filepath.Clean(filepath.Join(dir, commonDir))
+}
+
+func VertiConfigPath(t *testing.T, dir string) string {
+	t.Helper()
+	return filepath.Join(GitCommonDir(t, dir), "verti.toml")
+}
+
+func ReferenceTransactionHookPath(t *testing.T, dir string) string {
+	t.Helper()
+	return filepath.Join(GitCommonDir(t, dir), "hooks", "reference-transaction")
+}
+
+func PostCheckoutHookPath(t *testing.T, dir string) string {
+	t.Helper()
+	return filepath.Join(GitCommonDir(t, dir), "hooks", "post-checkout")
+}
+
+func ExcludePath(t *testing.T, dir string) string {
+	t.Helper()
+	return filepath.Join(GitCommonDir(t, dir), "info", "exclude")
 }
 
 func RunGit(t *testing.T, dir string, args ...string) string {

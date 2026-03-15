@@ -15,6 +15,10 @@ import (
 
 func TestAddBootstrapsConfigAndHooksWithoutEditor(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
+	configPath := testutil.VertiConfigPath(t, repoDir)
+	referenceTransactionPath := testutil.ReferenceTransactionHookPath(t, repoDir)
+	postCheckoutPath := testutil.PostCheckoutHookPath(t, repoDir)
+	excludePath := testutil.ExcludePath(t, repoDir)
 	t.Setenv("GIT_EDITOR", testutil.NewFakeEditor(t, repoDir, "#!/bin/sh\nexit 99\n"))
 	t.Setenv("EDITOR", "")
 
@@ -34,7 +38,7 @@ func TestAddBootstrapsConfigAndHooksWithoutEditor(t *testing.T) {
 			t.Fatalf("ReadConfig() Artifacts = %#v, want %#v", cfg.Artifacts, []string{"docs"})
 		}
 
-		config, err := os.ReadFile(filepath.Join(repoDir, configPath))
+		config, err := os.ReadFile(configPath)
 		if err != nil {
 			t.Fatalf("read config: %v", err)
 		}
@@ -42,7 +46,7 @@ func TestAddBootstrapsConfigAndHooksWithoutEditor(t *testing.T) {
 			t.Fatalf("config missing managed header: %q", string(config))
 		}
 
-		referenceHook, err := os.ReadFile(filepath.Join(repoDir, referenceTransactionPath))
+		referenceHook, err := os.ReadFile(referenceTransactionPath)
 		if err != nil {
 			t.Fatalf("read reference-transaction hook: %v", err)
 		}
@@ -50,7 +54,7 @@ func TestAddBootstrapsConfigAndHooksWithoutEditor(t *testing.T) {
 			t.Fatalf("reference-transaction hook missing sync invocation: %q", string(referenceHook))
 		}
 
-		postCheckoutHook, err := os.ReadFile(filepath.Join(repoDir, postCheckoutHookPath))
+		postCheckoutHook, err := os.ReadFile(postCheckoutPath)
 		if err != nil {
 			t.Fatalf("read post-checkout hook: %v", err)
 		}
@@ -58,7 +62,7 @@ func TestAddBootstrapsConfigAndHooksWithoutEditor(t *testing.T) {
 			t.Fatalf("post-checkout hook missing sync invocation: %q", string(postCheckoutHook))
 		}
 
-		exclude, err := os.ReadFile(filepath.Join(repoDir, excludePath))
+		exclude, err := os.ReadFile(excludePath)
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
@@ -66,7 +70,7 @@ func TestAddBootstrapsConfigAndHooksWithoutEditor(t *testing.T) {
 			t.Fatalf("exclude = %q, want %q", string(exclude), managedExcludeBlockForTest("/docs"))
 		}
 
-		managed, err := gitrepo.ReadManagedExcludes(filepath.Join(repoDir, excludePath))
+		managed, err := gitrepo.ReadManagedExcludes(excludePath)
 		if err != nil {
 			t.Fatalf("ReadManagedExcludes() error = %v", err)
 		}
@@ -78,6 +82,8 @@ func TestAddBootstrapsConfigAndHooksWithoutEditor(t *testing.T) {
 
 func TestAddAppendsArtifactAndUpdatesExclude(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
+	configPath := testutil.VertiConfigPath(t, repoDir)
+	excludePath := testutil.ExcludePath(t, repoDir)
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		if err := verticonfig.WriteConfig(configPath, verticonfig.Config{
@@ -115,6 +121,8 @@ func TestAddAppendsArtifactAndUpdatesExclude(t *testing.T) {
 
 func TestAddDuplicateArtifactIsNoOp(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
+	configPath := testutil.VertiConfigPath(t, repoDir)
+	excludePath := testutil.ExcludePath(t, repoDir)
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		if err := verticonfig.WriteConfig(configPath, verticonfig.Config{
@@ -152,6 +160,7 @@ func TestAddDuplicateArtifactIsNoOp(t *testing.T) {
 
 func TestAddRootedAndUnrootedDirectoryArtifactsDeduplicate(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
+	configPath := testutil.VertiConfigPath(t, repoDir)
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		if err := os.MkdirAll("docs", 0o755); err != nil {
@@ -195,6 +204,7 @@ func TestAddDirectoryOnlyArtifactRequiresDirectory(t *testing.T) {
 
 func TestAddRejectsInvalidArtifactPathBeforeBootstrap(t *testing.T) {
 	repoDir := testutil.NewRepo(t)
+	configPath := testutil.VertiConfigPath(t, repoDir)
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		err := Add("/tmp/verti", "../outside.txt")
