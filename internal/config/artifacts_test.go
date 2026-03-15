@@ -10,14 +10,24 @@ func TestNormalizeArtifactPath(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:  "clean relative file",
+			name:  "keeps relative file",
 			input: "docs/guide.md",
 			want:  "docs/guide.md",
 		},
 		{
-			name:  "cleans nested path",
-			input: "docs/../notes.txt",
-			want:  "notes.txt",
+			name:  "strips leading slash",
+			input: "/docs/guide.md",
+			want:  "docs/guide.md",
+		},
+		{
+			name:  "preserves trailing slash",
+			input: "docs/",
+			want:  "docs/",
+		},
+		{
+			name:  "strips leading slash and preserves trailing slash",
+			input: "/docs/",
+			want:  "docs/",
 		},
 		{
 			name:    "empty",
@@ -25,19 +35,49 @@ func TestNormalizeArtifactPath(t *testing.T) {
 			wantErr: "empty path",
 		},
 		{
-			name:    "absolute",
-			input:   "/tmp/file.txt",
-			wantErr: "must be relative",
+			name:    "root only",
+			input:   "/",
+			wantErr: "must point to a file or directory",
+		},
+		{
+			name:    "multiple leading slashes",
+			input:   "//docs",
+			wantErr: "must not start with multiple slashes",
 		},
 		{
 			name:    "dot",
 			input:   ".",
-			wantErr: "must point to a file",
+			wantErr: "must be rooted at repository top",
+		},
+		{
+			name:    "leading dot",
+			input:   "./docs",
+			wantErr: "must be rooted at repository top",
+		},
+		{
+			name:    "embedded dot",
+			input:   "docs/./guide.md",
+			wantErr: "must be rooted at repository top",
 		},
 		{
 			name:    "escape",
 			input:   "../outside.txt",
 			wantErr: "must not escape repository",
+		},
+		{
+			name:    "rooted escape",
+			input:   "/../outside.txt",
+			wantErr: "must not escape repository",
+		},
+		{
+			name:    "embedded escape",
+			input:   "docs/../guide.md",
+			wantErr: "must not escape repository",
+		},
+		{
+			name:    "empty segment",
+			input:   "docs//guide.md",
+			wantErr: "must not contain empty path segments",
 		},
 	}
 

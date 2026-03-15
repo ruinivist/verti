@@ -21,7 +21,7 @@ func TestWriteManagedExcludesCreatesBlock(t *testing.T) {
 		{
 			name:      "non-empty block",
 			artifacts: []string{"foo", "dir/baz"},
-			want:      managedExcludeBlockForTest("foo", "dir/baz"),
+			want:      managedExcludeBlockForTest("/foo", "/dir/baz"),
 		},
 	}
 
@@ -60,7 +60,7 @@ func TestWriteManagedExcludesAppendsManagedBlock(t *testing.T) {
 		t.Fatalf("read exclude: %v", err)
 	}
 
-	want := "# comment\nfoo\n" + managedExcludeBlockForTest("bar", "dir/baz")
+	want := "# comment\nfoo\n" + managedExcludeBlockForTest("/bar", "/dir/baz")
 	if string(got) != want {
 		t.Fatalf("exclude = %q, want %q", string(got), want)
 	}
@@ -68,7 +68,7 @@ func TestWriteManagedExcludesAppendsManagedBlock(t *testing.T) {
 
 func TestWriteManagedExcludesRewritesExistingBlockOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "exclude")
-	initial := "# comment\n" + managedExcludeBlockForTest("old", "entry") + "\n# suffix\nmanual\n"
+	initial := "# comment\n" + managedExcludeBlockForTest("/old", "/entry") + "\n# suffix\nmanual\n"
 	if err := os.WriteFile(path, []byte(initial), 0o644); err != nil {
 		t.Fatalf("write exclude: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestWriteManagedExcludesRewritesExistingBlockOnly(t *testing.T) {
 		t.Fatalf("read exclude: %v", err)
 	}
 
-	want := "# comment\n\n# suffix\nmanual\n" + managedExcludeBlockForTest("fresh")
+	want := "# comment\n\n# suffix\nmanual\n" + managedExcludeBlockForTest("/fresh")
 	if string(got) != want {
 		t.Fatalf("exclude = %q, want %q", string(got), want)
 	}
@@ -90,7 +90,7 @@ func TestWriteManagedExcludesRewritesExistingBlockOnly(t *testing.T) {
 
 func TestReadManagedExcludesReturnsOnlyManagedPaths(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "exclude")
-	content := "# comment\nfoo\n" + managedExcludeBlockForTest("docs", "notes.txt") + "manual\n"
+	content := "# comment\nfoo\n" + managedExcludeBlockForTest("/docs", "/notes.txt") + "manual\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write exclude: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestReadManagedExcludesReturnsOnlyManagedPaths(t *testing.T) {
 		t.Fatalf("ReadManagedExcludes() error = %v", err)
 	}
 
-	want := []string{"docs", "notes.txt"}
+	want := []string{"/docs", "/notes.txt"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ReadManagedExcludes() = %#v, want %#v", got, want)
 	}

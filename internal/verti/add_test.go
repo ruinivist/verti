@@ -62,16 +62,16 @@ func TestAddBootstrapsConfigAndHooksWithoutEditor(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
-		if string(exclude) != managedExcludeBlockForTest("docs") {
-			t.Fatalf("exclude = %q, want %q", string(exclude), managedExcludeBlockForTest("docs"))
+		if string(exclude) != managedExcludeBlockForTest("/docs") {
+			t.Fatalf("exclude = %q, want %q", string(exclude), managedExcludeBlockForTest("/docs"))
 		}
 
 		managed, err := gitrepo.ReadManagedExcludes(filepath.Join(repoDir, excludePath))
 		if err != nil {
 			t.Fatalf("ReadManagedExcludes() error = %v", err)
 		}
-		if !reflect.DeepEqual(managed, []string{"docs"}) {
-			t.Fatalf("ReadManagedExcludes() = %#v, want %#v", managed, []string{"docs"})
+		if !reflect.DeepEqual(managed, []string{"/docs"}) {
+			t.Fatalf("ReadManagedExcludes() = %#v, want %#v", managed, []string{"/docs"})
 		}
 	})
 }
@@ -106,7 +106,7 @@ func TestAddAppendsArtifactAndUpdatesExclude(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
-		wantExclude := "# comment\nfoo\n" + managedExcludeBlockForTest("foo", "docs/guide.md")
+		wantExclude := "# comment\nfoo\n" + managedExcludeBlockForTest("/foo", "/docs/guide.md")
 		if string(exclude) != wantExclude {
 			t.Fatalf("exclude = %q, want %q", string(exclude), wantExclude)
 		}
@@ -127,7 +127,7 @@ func TestAddDuplicateArtifactIsNoOp(t *testing.T) {
 			t.Fatalf("write exclude: %v", err)
 		}
 
-		if err := Add("/tmp/verti", "foo"); err != nil {
+		if err := Add("/tmp/verti", "/foo"); err != nil {
 			t.Fatalf("Add() error = %v", err)
 		}
 
@@ -143,9 +143,52 @@ func TestAddDuplicateArtifactIsNoOp(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
-		wantExclude := "# comment\nfoo\n" + managedExcludeBlockForTest("foo")
+		wantExclude := "# comment\nfoo\n" + managedExcludeBlockForTest("/foo")
 		if string(exclude) != wantExclude {
 			t.Fatalf("exclude = %q, want %q", string(exclude), wantExclude)
+		}
+	})
+}
+
+func TestAddRootedAndUnrootedDirectoryArtifactsDeduplicate(t *testing.T) {
+	repoDir := testutil.NewRepo(t)
+
+	testutil.WithWorkingDir(t, repoDir, func() {
+		if err := os.MkdirAll("docs", 0o755); err != nil {
+			t.Fatalf("MkdirAll() error = %v", err)
+		}
+		if err := verticonfig.WriteConfig(configPath, verticonfig.Config{
+			RepoID:    "repo-dir-dup",
+			Artifacts: []string{"docs/"},
+		}); err != nil {
+			t.Fatalf("WriteConfig() error = %v", err)
+		}
+
+		if err := Add("/tmp/verti", "/docs/"); err != nil {
+			t.Fatalf("Add() error = %v", err)
+		}
+
+		cfg, err := verticonfig.ReadConfig(configPath)
+		if err != nil {
+			t.Fatalf("ReadConfig() error = %v", err)
+		}
+		if strings.Join(cfg.Artifacts, ",") != "docs/" {
+			t.Fatalf("ReadConfig() Artifacts = %#v, want %#v", cfg.Artifacts, []string{"docs/"})
+		}
+	})
+}
+
+func TestAddDirectoryOnlyArtifactRequiresDirectory(t *testing.T) {
+	repoDir := testutil.NewRepo(t)
+	testutil.WriteFile(t, filepath.Join(repoDir, "notes.txt"), "notes\n")
+
+	testutil.WithWorkingDir(t, repoDir, func() {
+		err := Add("/tmp/verti", "/notes.txt/")
+		if err == nil {
+			t.Fatal("Add() error = nil, want error")
+		}
+		if err.Error() != "artifact is not a directory: notes.txt" {
+			t.Fatalf("Add() error = %q, want %q", err.Error(), "artifact is not a directory: notes.txt")
 		}
 	})
 }

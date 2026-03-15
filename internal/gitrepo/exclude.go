@@ -73,10 +73,20 @@ func makeManagedExcludeBlock(artifacts []string) string {
 	builder.WriteString(managedExcludeStart)
 	builder.WriteByte('\n')
 	for _, artifact := range artifacts {
-		builder.WriteString(artifact)
+		builder.WriteString(rootedExcludePattern(artifact))
 		builder.WriteByte('\n')
 	}
 	builder.WriteString(managedExcludeEnd)
 	builder.WriteByte('\n')
 	return builder.String()
+}
+
+func rootedExcludePattern(artifact string) string {
+	if artifact == "" {
+		return "/"
+	}
+	if strings.HasPrefix(artifact, "/") {
+		return artifact
+	}
+	return "/" + artifact
 }

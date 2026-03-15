@@ -252,6 +252,46 @@ func TestSyncSnapshotsAndRestoresConfiguredDirectory(t *testing.T) {
 	}
 }
 
+func TestSyncDirectoryOnlyArtifactRejectsFile(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-dir-only-file", "docs/")
+	fixture.writeArtifact("docs", "not a directory\n")
+
+	stdout, stderr, err := fixture.runSync()
+	if err == nil {
+		t.Fatal("Sync() error = nil, want error")
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if err.Error() != "artifact is not a directory: docs" {
+		t.Fatalf("Sync() error = %q, want %q", err.Error(), "artifact is not a directory: docs")
+	}
+}
+
+func TestSyncNormalizesRootedConfigArtifacts(t *testing.T) {
+	fixture := newSyncFixture(t, "repo-rooted-config", "/docs/")
+	fixture.writeArtifact("docs/guide.md", "guide v1\n")
+
+	stdout, stderr, err := fixture.runSync()
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+	if stdout != prefixed("Created artifacts for "+fixture.headDisplay()+"\n") {
+		t.Fatalf("stdout = %q, want %q", stdout, prefixed("Created artifacts for "+fixture.headDisplay()+"\n"))
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+
+	storedManifest := fixture.readManifest(fixture.head())
+	if got := storedManifest.Artifacts["docs/guide.md"]; got != hashContent([]byte("guide v1\n")) {
+		t.Fatalf("manifest hash = %q, want %q", got, hashContent([]byte("guide v1\n")))
+	}
+}
+
 func TestSyncRestoresConfiguredDirectoryWhenMissingLocally(t *testing.T) {
 	fixture := newSyncFixture(t, "repo-dir-missing", "docs")
 	fixture.writeArtifact("docs/guide.md", "guide v1\n")

@@ -128,7 +128,7 @@ func TestInitPreservesExistingConfigAndRewritesHook(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
-		wantExclude := "# comment\nfoo\n" + managedExcludeBlockForTest("foo")
+		wantExclude := "# comment\nfoo\n" + managedExcludeBlockForTest("/foo")
 		if string(gotExclude) != wantExclude {
 			t.Fatalf("exclude changed = %q, want %q", string(gotExclude), wantExclude)
 		}
@@ -167,8 +167,8 @@ func TestInitIsIdempotentOnRepeat(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
-		if string(exclude) != managedExcludeBlockForTest("foo", "bar") {
-			t.Fatalf("exclude = %q, want %q", string(exclude), managedExcludeBlockForTest("foo", "bar"))
+		if string(exclude) != managedExcludeBlockForTest("/foo", "/bar") {
+			t.Fatalf("exclude = %q, want %q", string(exclude), managedExcludeBlockForTest("/foo", "/bar"))
 		}
 	})
 }

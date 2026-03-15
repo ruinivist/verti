@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 )
 
@@ -11,19 +10,33 @@ func NormalizeArtifactPath(path string) (string, error) {
 	if path == "" {
 		return "", errors.New("empty path")
 	}
-	if filepath.IsAbs(path) {
-		return "", errors.New("must be relative")
-	}
 
-	cleaned := filepath.Clean(path)
-	if cleaned == "." {
-		return "", errors.New("must point to a file")
+	if strings.HasPrefix(path, "/") {
+		path = strings.TrimPrefix(path, "/")
+		if strings.HasPrefix(path, "/") {
+			return "", errors.New("must not start with multiple slashes")
+		}
 	}
-	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+	if path == "" {
+		return "", errors.New("must point to a file or directory")
+	}
+	if strings.HasPrefix(path, "../") || path == ".." {
 		return "", errors.New("must not escape repository")
 	}
+	if strings.Contains(path, "/../") || strings.HasSuffix(path, "/..") {
+		return "", errors.New("must not escape repository")
+	}
+	if strings.Contains(path, "//") {
+		return "", errors.New("must not contain empty path segments")
+	}
+	if strings.HasPrefix(path, "./") || path == "." {
+		return "", errors.New("must be rooted at repository top")
+	}
+	if strings.Contains(path, "/./") || strings.HasSuffix(path, "/.") {
+		return "", errors.New("must be rooted at repository top")
+	}
 
-	return cleaned, nil
+	return path, nil
 }
 
 func NormalizeArtifactPaths(artifacts []string) ([]string, error) {

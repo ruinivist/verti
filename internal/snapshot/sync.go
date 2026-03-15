@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -50,6 +51,11 @@ type namedManifest struct {
 	id        string
 	manifest  manifest
 	createdAt time.Time
+}
+
+type artifactSpec struct {
+	path          string
+	directoryOnly bool
 }
 
 func Sync(cfg verticonfig.Config) error {
@@ -242,7 +248,8 @@ func expandArtifacts(artifacts []string) ([]string, []string, error) {
 	expanded := make([]string, 0, len(artifacts))
 	warnings := make([]string, 0)
 	for _, artifact := range artifacts {
-		paths, artifactWarnings, err := expandArtifact(artifact)
+		spec := parseArtifactSpec(artifact)
+		paths, artifactWarnings, err := expandArtifact(spec)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -254,25 +261,38 @@ func expandArtifacts(artifacts []string) ([]string, []string, error) {
 	return uniqueStrings(expanded), warnings, nil
 }
 
-func expandArtifact(artifact string) ([]string, []string, error) {
-	info, err := os.Lstat(artifact)
+func parseArtifactSpec(artifact string) artifactSpec {
+	if strings.HasSuffix(artifact, "/") {
+		return artifactSpec{
+			path:          strings.TrimSuffix(artifact, "/"),
+			directoryOnly: true,
+		}
+	}
+	return artifactSpec{path: artifact}
+}
+
+func expandArtifact(spec artifactSpec) ([]string, []string, error) {
+	info, err := os.Lstat(spec.path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil, fmt.Errorf("artifact not found: %s", artifact)
+			return nil, nil, fmt.Errorf("artifact not found: %s", spec.path)
 		}
-		return nil, nil, fmt.Errorf("failed to check artifact %s: %v", artifact, err)
+		return nil, nil, fmt.Errorf("failed to check artifact %s: %v", spec.path, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return nil, nil, fmt.Errorf("artifact is a symlink: %s", artifact)
+		return nil, nil, fmt.Errorf("artifact is a symlink: %s", spec.path)
 	}
 	if info.IsDir() {
-		return walkArtifactDir(artifact)
+		return walkArtifactDir(spec.path)
+	}
+	if spec.directoryOnly {
+		return nil, nil, fmt.Errorf("artifact is not a directory: %s", spec.path)
 	}
 	if !info.Mode().IsRegular() {
-		return nil, nil, fmt.Errorf("artifact is not a regular file: %s", artifact)
+		return nil, nil, fmt.Errorf("artifact is not a regular file: %s", spec.path)
 	}
 
-	return []string{artifact}, nil, nil
+	return []string{spec.path}, nil, nil
 }
 
 func walkArtifactDir(root string) ([]string, []string, error) {

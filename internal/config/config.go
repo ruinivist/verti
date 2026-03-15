@@ -69,5 +69,10 @@ func normalizeConfig(cfg Config) (Config, error) {
 	if cfg.Artifacts == nil {
 		cfg.Artifacts = []string{}
 	}
+	artifacts, err := NormalizeArtifactPaths(cfg.Artifacts)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Artifacts = artifacts
 	return cfg, nil
 }

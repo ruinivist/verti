@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -33,12 +34,15 @@ func Add(exePath, artifactPath string) error {
 		return fmt.Errorf("invalid artifact path %q: %v", artifactPath, err)
 	}
 
-	if _, err := os.Stat(cleaned); err != nil {
+	info, err := os.Stat(strings.TrimSuffix(cleaned, "/"))
+	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			output.Println("Warn: path doesn't exist but marking it as artifact for future.")
 		} else {
 			return fmt.Errorf("failed to check artifact %s: %v", cleaned, err)
 		}
+	} else if strings.HasSuffix(cleaned, "/") && !info.IsDir() {
+		return fmt.Errorf("artifact is not a directory: %s", strings.TrimSuffix(cleaned, "/"))
 	}
 
 	if err := ensureInitialized(exePath); err != nil {

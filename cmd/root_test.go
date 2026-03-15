@@ -161,7 +161,7 @@ func TestRunAddExecution(t *testing.T) {
 
 	testutil.WithWorkingDir(t, repoDir, func() {
 		stdout, stderr := captureOutput(t, func() {
-			if got := Run([]string{"add", "docs/../notes.txt"}); got != 0 {
+			if got := Run([]string{"add", "/notes.txt"}); got != 0 {
 				t.Fatalf("Run() code = %d, want %d", got, 0)
 			}
 		})
@@ -185,8 +185,8 @@ func TestRunAddExecution(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read exclude: %v", err)
 		}
-		if string(exclude) != managedExcludeBlockForTest("notes.txt") {
-			t.Fatalf("exclude = %q, want %q", string(exclude), managedExcludeBlockForTest("notes.txt"))
+		if string(exclude) != managedExcludeBlockForTest("/notes.txt") {
+			t.Fatalf("exclude = %q, want %q", string(exclude), managedExcludeBlockForTest("/notes.txt"))
 		}
 	})
 }

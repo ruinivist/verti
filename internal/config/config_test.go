@@ -38,6 +38,17 @@ artifacts = ["test.md", "docs", "build/output.txt"]
 			},
 		},
 		{
+			name: "normalizes rooted artifacts",
+			content: `[verti]
+repo_id = "repo-rooted"
+artifacts = ["/test.md", "/docs/", "build/output.txt"]
+`,
+			want: Config{
+				RepoID:    "repo-rooted",
+				Artifacts: []string{"test.md", "docs/", "build/output.txt"},
+			},
+		},
+		{
 			name: "missing artifacts defaults empty",
 			content: `[verti]
 repo_id = "repo-3"
@@ -100,7 +111,7 @@ func TestWriteConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "verti.toml")
 	cfg := Config{
 		RepoID:    "repo-write",
-		Artifacts: []string{"file1.txt", "dir/file2.md"},
+		Artifacts: []string{"/file1.txt", "/dir/", "dir/file2.md"},
 	}
 
 	if err := WriteConfig(path, cfg); err != nil {
@@ -120,7 +131,7 @@ func TestWriteConfig(t *testing.T) {
 	if !bytes.Contains(content, []byte("repo_id = \"repo-write\"\n")) {
 		t.Fatalf("config missing repo_id: %q", string(content))
 	}
-	if !bytes.Contains(content, []byte("artifacts = [\"file1.txt\", \"dir/file2.md\"]\n")) {
+	if !bytes.Contains(content, []byte("artifacts = [\"file1.txt\", \"dir/\", \"dir/file2.md\"]\n")) {
 		t.Fatalf("config missing artifacts: %q", string(content))
 	}
 
@@ -128,8 +139,12 @@ func TestWriteConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadConfig() error = %v", err)
 	}
-	if !reflect.DeepEqual(roundTrip, cfg) {
-		t.Fatalf("round trip config = %#v, want %#v", roundTrip, cfg)
+	want := Config{
+		RepoID:    "repo-write",
+		Artifacts: []string{"file1.txt", "dir/", "dir/file2.md"},
+	}
+	if !reflect.DeepEqual(roundTrip, want) {
+		t.Fatalf("round trip config = %#v, want %#v", roundTrip, want)
 	}
 }
 
